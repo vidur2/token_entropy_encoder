@@ -19,7 +19,7 @@ pub struct ChatRequest {
 }
 
 /// Trait that generalizes over an axum async websocket server with Huffman encoding capabilities
-pub trait HuffmanServer: Send + Sync + Sized {
+pub trait HuffmanServer<'a>: Send + Sync + Sized {
     /// Simulate network chunks from an encoded message
     ///
     /// # Arguments
@@ -39,7 +39,7 @@ pub trait HuffmanServer: Send + Sync + Sized {
     ///
     /// # Returns
     /// A reference to the HuffmanGenerator used for encoding
-    fn get_huffman() -> HuffmanGenerator;
+    fn get_huffman() -> &'a HuffmanGenerator;
 
     /// HTTP handler implementation for testing if the server is up
     fn handle_hello() -> (StatusCode, &'static str) {

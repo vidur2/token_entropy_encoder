@@ -2,21 +2,36 @@ use std::pin::Pin;
 
 use axum::{Router, routing::get};
 use futures::Stream;
+use once_cell::sync::Lazy;
 use token_entropy_encoder::{huffman::HuffmanGenerator, server::HuffmanServer};
+use async_stream::stream;
+use tokio::time::{sleep, Duration};
+
+// Load HuffmanGenerator once from the JSON file
+static HUFFMAN: Lazy<HuffmanGenerator> = Lazy::new(|| {
+    let json_data = include_str!("../../enc_dec.json");
+    HuffmanGenerator::from_json(json_data)
+        .expect("Failed to deserialize HuffmanGenerator from JSON")
+});
 
 pub struct HuffmanServerImpl;
 
-impl HuffmanServer for HuffmanServerImpl {
+impl<'a> HuffmanServer<'a> for HuffmanServerImpl {
     fn simulate_network_chunks(
         encoded: Vec<u8>,
         chunk_size: usize,
         tick_ms: u64,
     ) -> Pin<Box<dyn Stream<Item = Vec<u8>> + Send>> {
-        todo!()
+        Box::pin(stream! {
+            for chunk in encoded.chunks(chunk_size) {
+                yield chunk.to_vec();
+                sleep(Duration::from_millis(tick_ms)).await;
+            }
+        })
     }
 
-    fn get_huffman() -> HuffmanGenerator {
-        todo!()
+    fn get_huffman() -> &'a HuffmanGenerator {
+        return &HUFFMAN;
     }
 }
 
@@ -31,6 +46,22 @@ pub fn create_router() -> Router {
         .route("/chat", get(HuffmanServerImpl::chat_handler))
 }
 
-fn main() {
-    
+#[tokio::main]
+async fn main() {
+    // Force initialization of the HuffmanGenerator
+    Lazy::force(&HUFFMAN);
+    println!("HuffmanGenerator loaded successfully!");
+
+    let app = create_router();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .expect("Failed to bind to port 3000");
+
+    println!("Server running on http://127.0.0.1:3000");
+    println!("WebSocket endpoint: ws://127.0.0.1:3000/chat");
+    println!("Health check: http://127.0.0.1:3000/hello");
+
+    axum::serve(listener, app)
+        .await
+        .expect("Server failed to start");
 }
