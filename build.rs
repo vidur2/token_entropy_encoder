@@ -1,7 +1,16 @@
 use std::{env, fs};
 
 fn main() {
-    // load .env at compile time
+    // Skip build script for WASM target
+    let target = env::var("TARGET").unwrap_or_default();
+    if target.contains("wasm32") {
+        // For WASM, just create a dummy vocab_size.rs
+        let dest = "src/vocab_size.rs";
+        fs::write(dest, "pub const VOCAB_SIZE: usize = 0;\n").unwrap();
+        return;
+    }
+
+    // load .env at compile time for non-WASM targets
     dotenvy::dotenv().ok();
 
     let n: usize = env::var("LLAMA_VOCAB_SIZE")

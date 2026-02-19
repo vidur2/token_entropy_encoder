@@ -1240,6 +1240,7 @@ dependencies = [
  "axum",
  "dotenvy",
  "futures",
+ "once_cell",
  "serde",
  "serde_json",
  "tokenizers",
@@ -1247,6 +1248,7 @@ dependencies = [
  "tokio-stream",
  "tower",
  "tower-http",
+ "wasm-bindgen",
 ]
 
 [[package]]

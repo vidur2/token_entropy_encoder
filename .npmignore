@@ -1,0 +1,15 @@
+target/
+src/
+examples/
+scripts/
+.env
+.gitignore
+Cargo.lock
+Cargo.toml
+build.rs
+enc_dec.json
+llama_pmf.json
+llama_tokenizer.json
+vocab.json
+build_wasm.sh
+*.rs
