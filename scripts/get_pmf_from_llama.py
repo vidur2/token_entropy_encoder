@@ -4,12 +4,18 @@ from json import dump
 from dotenv import load_dotenv, set_key
 from os import getenv
 from os.path import abspath
+from sys import argv
 
 load_dotenv()
 
-
-
-model_id = getenv('MODEL_ID')
+model_id = None
+if (len(argv) >= 2):
+    print(f"Loading {argv[1]} from command line args")
+    model_id = argv[1]
+    set_key('.env', 'MODEL_ID', model_id)
+else:
+    print(f"Loading {getenv('MODEL_ID')} from env")
+    model_id = getenv('MODEL_ID')
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 model = AutoModelForCausalLM.from_pretrained(model_id)
 
