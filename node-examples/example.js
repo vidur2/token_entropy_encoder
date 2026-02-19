@@ -61,7 +61,7 @@ try {
 // Example 4: Try some common tokens if they exist
 console.log('Example 4: Testing common tokens');
 console.log('---------------------------------');
-const testTokens = ['the', 'a', 'is', 'in', 'to', 'of', 'and', ' ', '\n'];
+const testTokens = ['the', 'a', 'is', 'in', 'to', 'of', 'and', 'Hello', ' ', '\n'];
 
 for (const token of testTokens) {
     try {

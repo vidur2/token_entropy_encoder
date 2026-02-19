@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const WebSocket = require('ws');
-const { decode } = require('../pkg/token_entropy_encoder.js');
+const { decode_bulk } = require('../pkg/token_entropy_encoder.js');
 
 const SERVER_URL = 'ws://127.0.0.1:3000/chat';
 
@@ -48,8 +48,9 @@ async function testWebSocketChat() {
                 
                 try {
                     const buffer = new Uint8Array(allChunks);
-                    const decoded = decode(buffer);
-                    console.log('Decoded result:', decoded);
+                    const decoded = decode_bulk(buffer);
+                    console.log('Decoded tokens:', decoded);
+                    console.log('Number of tokens:', decoded.length);
                 } catch (error) {
                     console.error('Decode error:', error.message);
                 }
@@ -72,8 +73,10 @@ async function testWebSocketChat() {
             
             try {
                 const buffer = new Uint8Array(allChunks);
-                const decoded = decode(buffer);
-                console.log('Decoded result:', decoded);
+                console.log(buffer)
+                const decoded = decode_bulk(buffer);
+                console.log('Decoded tokens:', decoded);
+                console.log('Number of tokens:', decoded.length);
             } catch (error) {
                 console.error('Decode error:', error.message);
             }

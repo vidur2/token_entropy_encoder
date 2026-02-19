@@ -135,9 +135,9 @@ pub trait HuffmanServer<'a>: Send + Sync + Sized {
                 }
             }
 
-            let _ = sender
-                .send(Message::Text("Stream complete".to_string()))
-                .await;
+            // let _ = sender
+            //     .send(Message::Text("Stream complete".to_string()))
+            //     .await;
             let _ = sender.close().await;
         })
     }

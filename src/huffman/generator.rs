@@ -335,4 +335,165 @@ impl HuffmanGenerator {
         // Decode the unpacked bits
         self.decode(&bits)
     }
+
+    /// Encode multiple tokens to packed bytes (only for m=2, binary alphabet)
+    ///
+    /// This encodes all tokens and packs their bits into bytes for efficient transmission.
+    /// Format: [4 bytes: bit count (big-endian)] [packed bits for all tokens]
+    ///
+    /// # Arguments
+    /// * `codewords` - Slice of tokens to encode
+    ///
+    /// # Returns
+    /// Packed byte array with bit count header containing all encoded tokens
+    pub fn encode_bulk_packed(&self, codewords: &[&str]) -> Result<Vec<u8>, String> {
+        if self.m != 2 {
+            return Err(format!(
+                "Packed encoding only supported for binary (m=2), got m={}",
+                self.m
+            ));
+        }
+
+        // Collect all bits from all tokens
+        let mut all_bits = Vec::new();
+        for codeword in codewords {
+            let bits = self.encode(codeword)?;
+            all_bits.extend(bits);
+        }
+        
+        // Pack: [4 bytes: bit count] [packed bytes]
+        let bit_count = all_bits.len() as u32;
+        let mut packed = bit_count.to_be_bytes().to_vec();
+        
+        // Pack 8 bits into each byte (MSB first)
+        for chunk in all_bits.chunks(8) {
+            let mut byte = 0u8;
+            for (i, &bit) in chunk.iter().enumerate() {
+                if bit != 0 {
+                    byte |= 1 << (7 - i);
+                }
+            }
+            packed.push(byte);
+        }
+        
+        Ok(packed)
+    }
+
+    /// Decode packed bytes to multiple tokens (only for m=2, binary alphabet)
+    ///
+    /// This unpacks bits from bytes and decodes all tokens sequentially.
+    /// Expected format: [4 bytes: bit count (big-endian)] [packed bits]
+    ///
+    /// # Arguments
+    /// * `packed` - Packed byte array with bit count header
+    ///
+    /// # Returns
+    /// Vector of decoded tokens
+    pub fn decode_bulk_packed(&self, packed: &[u8]) -> Result<Vec<String>, String> {
+        if self.m != 2 {
+            return Err(format!(
+                "Packed decoding only supported for binary (m=2), got m={}",
+                self.m
+            ));
+        }
+
+        if packed.len() < 4 {
+            return Err("Packed data too short: need at least 4 bytes for header".to_string());
+        }
+
+        // Extract bit count from first 4 bytes (big-endian)
+        let bit_count = u32::from_be_bytes([packed[0], packed[1], packed[2], packed[3]]) as usize;
+        
+        // Unpack bits from remaining bytes
+        let mut bits = Vec::with_capacity(bit_count);
+        for &byte in &packed[4..] {
+            for i in (0..8).rev() {
+                bits.push((byte >> i) & 1);
+                if bits.len() == bit_count {
+                    break;
+                }
+            }
+            if bits.len() == bit_count {
+                break;
+            }
+        }
+
+        if bits.len() != bit_count {
+            return Err(format!(
+                "Could not unpack {} bits from {} bytes",
+                bit_count,
+                packed.len() - 4
+            ));
+        }
+
+        // Decode all tokens from the bit stream
+        self.decode_bulk(&bits)
+    }
+
+    /// Encode multiple tokens into a sequence of alphabet symbols
+    ///
+    /// # Arguments
+    /// * `codewords` - Slice of tokens to encode
+    ///
+    /// # Returns
+    /// A vector of alphabet symbols representing all encoded tokens
+    pub fn encode_bulk(&self, codewords: &[&str]) -> Result<Vec<u8>, String> {
+        let mut result = Vec::new();
+        for codeword in codewords {
+            let encoded = self.encode(codeword)?;
+            result.extend(encoded);
+        }
+        Ok(result)
+    }
+
+    /// Decode a sequence of alphabet symbols into multiple tokens
+    ///
+    /// This decodes tokens sequentially from the symbol stream until all symbols are consumed.
+    ///
+    /// # Arguments
+    /// * `alphabet_seq` - Sequence of alphabet symbols (each in range 0 to m-1)
+    ///
+    /// # Returns
+    /// Vector of decoded tokens
+    pub fn decode_bulk(&self, alphabet_seq: &[u8]) -> Result<Vec<String>, String> {
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| "Huffman tree not initialized".to_string())?;
+
+        let mut result = Vec::new();
+        let mut current = root.as_ref();
+        
+        for &symbol in alphabet_seq {
+            if symbol >= self.m {
+                return Err(format!(
+                    "Invalid alphabet symbol {} (must be < {})",
+                    symbol, self.m
+                ));
+            }
+
+            current = current.children[symbol as usize]
+                .as_ref()
+                .ok_or_else(|| format!("Invalid encoding: no child for symbol {}", symbol))?
+                .as_ref();
+
+            // Check if we've reached a leaf (completed a token)
+            if current.is_leaf() {
+                let codeword = current
+                    .codeword
+                    .clone()
+                    .ok_or_else(|| "Reached leaf with no codeword".to_string())?;
+                result.push(codeword);
+                // Reset to root for next token
+                current = root.as_ref();
+            }
+        }
+
+        // Ensure we ended at the root (all tokens were complete)
+        if !current.is_leaf() && current as *const _ != root.as_ref() as *const _ {
+            return Err("Incomplete token at end of sequence".to_string());
+        }
+
+        Ok(result)
+    }
 }
