@@ -1,6 +1,6 @@
-mod trie_node;
-mod priority_node;
 pub mod generator;
+mod priority_node;
+mod trie_node;
 
 #[cfg(test)]
 mod tests;

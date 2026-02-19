@@ -1,7 +1,7 @@
-use std::collections::{BinaryHeap, HashMap};
-use super::trie_node::TrieNode;
 use super::priority_node::PriorityNode;
+use super::trie_node::TrieNode;
 use serde::{Deserialize, Serialize};
+use std::collections::{BinaryHeap, HashMap};
 
 /// M-ary Huffman encoder/decoder
 pub struct HuffmanGenerator {
@@ -15,19 +15,29 @@ pub struct HuffmanGenerator {
 
 impl HuffmanGenerator {
     /// Create a new HuffmanGenerator from codewords, their probabilities, and alphabet size
-    /// 
+    ///
     /// # Arguments
-    /// * `codewords` - Array of codeword strings
+    /// * `codewords` - Slice of codeword strings
     /// * `pmf` - Probability mass function for each codeword (must sum to ~1.0)
     /// * `m` - Alphabet size (2 for binary, 3 for ternary, etc.)
-    /// 
+    ///
     /// # Returns
     /// A new HuffmanGenerator with the constructed trie and encoding map
-    pub fn new<const N: usize>(codewords: [String; N], pmf: [f64; N], m: u8) -> Result<Self, String> {
-        if N == 0 {
+    pub fn new(
+        codewords: &[String],
+        pmf: &[f64],
+        m: u8,
+    ) -> Result<Self, String> {
+        let n = codewords.len();
+        
+        if n == 0 {
             return Err("Cannot create Huffman tree with zero codewords".to_string());
         }
         
+        if n != pmf.len() {
+            return Err("Codewords and PMF must have the same length".to_string());
+        }
+
         if m < 2 {
             return Err("Alphabet size must be at least 2".to_string());
         }
@@ -39,8 +49,8 @@ impl HuffmanGenerator {
         }
 
         // Build the Huffman tree
-        let root = Self::build_huffman_tree(&codewords, &pmf, m as usize);
-        
+        let root = Self::build_huffman_tree(codewords, pmf, m as usize);
+
         // Build encoding map
         let mut encoding_map = HashMap::new();
         Self::build_encoding_map(&root, &mut Vec::new(), &mut encoding_map);
@@ -53,11 +63,12 @@ impl HuffmanGenerator {
     }
 
     /// Build the m-ary Huffman tree using a priority queue
-    fn build_huffman_tree<const N: usize>(
-        codewords: &[String; N],
-        pmf: &[f64; N],
+    fn build_huffman_tree(
+        codewords: &[String],
+        pmf: &[f64],
         m: usize,
     ) -> Box<TrieNode> {
+        let n = codewords.len();
         let mut heap = BinaryHeap::new();
 
         // Initialize heap with leaf nodes
@@ -65,14 +76,13 @@ impl HuffmanGenerator {
             let node = TrieNode::new_leaf(codeword.clone(), prob);
             heap.push(PriorityNode::new(node));
         }
-
         // For m-ary Huffman, we need to ensure we can combine m nodes at each step
-        // If N % (m-1) != 1, we need to add dummy nodes with 0 probability
-        let mut n = N;
-        while (n - 1) % (m - 1) != 0 {
+        // If n % (m-1) != 1, we need to add dummy nodes with 0 probability
+        let mut node_count = n;
+        while (node_count - 1) % (m - 1) != 0 {
             let dummy = TrieNode::new_leaf(String::new(), 0.0);
             heap.push(PriorityNode::new(dummy));
-            n += 1;
+            node_count += 1;
         }
 
         // Build tree by combining m nodes at a time
@@ -96,34 +106,38 @@ impl HuffmanGenerator {
         heap.pop().unwrap().node
     }
 
-    /// Recursively build the encoding map (codeword -> alphabet sequence)
-    fn build_encoding_map(
-        node: &TrieNode,
-        path: &mut Vec<u8>,
-        map: &mut HashMap<String, Vec<u8>>,
-    ) {
-        if node.is_leaf() {
-            if let Some(ref codeword) = node.codeword {
-                if !codeword.is_empty() {  // Skip dummy nodes
-                    map.insert(codeword.clone(), path.clone());
+    /// Build the encoding map (codeword -> alphabet sequence) using explicit iteration
+    fn build_encoding_map(node: &TrieNode, _path: &mut Vec<u8>, map: &mut HashMap<String, Vec<u8>>) {
+        // Use explicit stack to avoid stack overflow with large trees
+        let mut stack: Vec<(&TrieNode, Vec<u8>)> = Vec::new();
+        stack.push((node, Vec::new()));
+
+        while let Some((current_node, current_path)) = stack.pop() {
+            if current_node.is_leaf() {
+                if let Some(ref codeword) = current_node.codeword {
+                    if !codeword.is_empty() {
+                        // Skip dummy nodes
+                        map.insert(codeword.clone(), current_path);
+                    }
                 }
-            }
-        } else {
-            for (symbol, child_opt) in node.children.iter().enumerate() {
-                if let Some(child) = child_opt {
-                    path.push(symbol as u8);
-                    Self::build_encoding_map(child, path, map);
-                    path.pop();
+            } else {
+                // Push children onto stack in reverse order to maintain left-to-right traversal
+                for (symbol, child_opt) in current_node.children.iter().enumerate().rev() {
+                    if let Some(child) = child_opt {
+                        let mut new_path = current_path.clone();
+                        new_path.push(symbol as u8);
+                        stack.push((child.as_ref(), new_path));
+                    }
                 }
             }
         }
     }
 
     /// Encode a codeword into a sequence of alphabet symbols
-    /// 
+    ///
     /// # Arguments
     /// * `codeword` - The codeword to encode
-    /// 
+    ///
     /// # Returns
     /// A vector of alphabet symbols (0 to m-1) representing the encoding
     pub fn encode(&self, codeword: &str) -> Result<Vec<u8>, String> {
@@ -134,21 +148,26 @@ impl HuffmanGenerator {
     }
 
     /// Decode a sequence of alphabet symbols into a codeword
-    /// 
+    ///
     /// # Arguments
     /// * `alphabet_seq` - Sequence of alphabet symbols (each in range 0 to m-1)
-    /// 
+    ///
     /// # Returns
     /// The decoded codeword
     pub fn decode(&self, alphabet_seq: &[u8]) -> Result<String, String> {
-        let root = self.root.as_ref()
+        let root = self
+            .root
+            .as_ref()
             .ok_or_else(|| "Huffman tree not initialized".to_string())?;
 
         let mut current = root.as_ref();
 
         for &symbol in alphabet_seq {
             if symbol >= self.m {
-                return Err(format!("Invalid alphabet symbol {} (must be < {})", symbol, self.m));
+                return Err(format!(
+                    "Invalid alphabet symbol {} (must be < {})",
+                    symbol, self.m
+                ));
             }
 
             current = current.children[symbol as usize]
@@ -161,7 +180,9 @@ impl HuffmanGenerator {
             return Err("Invalid encoding: path does not lead to a leaf".to_string());
         }
 
-        current.codeword.clone()
+        current
+            .codeword
+            .clone()
             .ok_or_else(|| "Reached leaf with no codeword".to_string())
     }
 
@@ -176,7 +197,7 @@ impl HuffmanGenerator {
     }
 
     /// Serialize the HuffmanGenerator to JSON
-    /// 
+    ///
     /// # Returns
     /// A JSON string representation of the generator
     pub fn to_json(&self) -> Result<String, String> {
@@ -196,10 +217,10 @@ impl HuffmanGenerator {
     }
 
     /// Deserialize a HuffmanGenerator from JSON
-    /// 
+    ///
     /// # Arguments
     /// * `json` - JSON string representation of the generator
-    /// 
+    ///
     /// # Returns
     /// A reconstructed HuffmanGenerator
     pub fn from_json(json: &str) -> Result<Self, String> {
