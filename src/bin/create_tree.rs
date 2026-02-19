@@ -14,6 +14,10 @@ fn main() {
     let json_path = env::var("LLAMA_PMF_PATH").unwrap();
     let vocab = get_vocab(tokenizer_json_path);
     let pmf = load_pmf_from_json(json_path.as_str()).unwrap();
+
+    if pmf.len() != vocab.len() {
+        panic!("pmf must match the length of provided vocab");
+    }
     let json = HuffmanGenerator::new(&vocab, &pmf, 2)
         .unwrap()
         .to_json()
