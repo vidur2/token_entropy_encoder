@@ -80,33 +80,54 @@ pub trait HuffmanServer<'a>: Send + Sync + Sized {
 
             let message = payload.message;
 
-            // 2) Encode
+            // 2) Encode the first token (for m=2, this packs bits into bytes)
             let huffman = Self::get_huffman();
             let tokens: Vec<&str> = message.split_whitespace().collect();
 
-            let mut all_encoded: Vec<u8> = Vec::new();
-            for token in tokens {
-                match huffman.encode(token) {
-                    Ok(encoded_symbols) => {
-                        // Assuming encode() returns Vec<u8> (or something extendable into bytes)
-                        all_encoded.extend(encoded_symbols);
+            // For now, just encode the first token as a test
+            // TODO: Implement proper multi-token encoding with delimiters or separate messages
+            let token_to_encode = tokens.first().unwrap_or(&"test");
+            
+            let encoded_packed = if huffman.alphabet_size() == 2 {
+                // Use packed encoding for binary alphabet
+                match huffman.encode_packed(token_to_encode) {
+                    Ok(packed) => {
+                        println!("Encoded token '{}' to {} packed bytes", token_to_encode, packed.len());
+                        packed
                     }
                     Err(e) => {
                         let _ = sender
                             .send(Message::Text(format!(
-                                "Error encoding token '{token}': {e}"
+                                "Error encoding token '{token_to_encode}': {e}"
                             )))
                             .await;
                         let _ = sender.close().await;
                         return;
                     }
                 }
-            }
+            } else {
+                // Use regular encoding for non-binary alphabets
+                match huffman.encode(token_to_encode) {
+                    Ok(symbols) => {
+                        println!("Encoded token '{}' to {} symbols", token_to_encode, symbols.len());
+                        symbols
+                    }
+                    Err(e) => {
+                        let _ = sender
+                            .send(Message::Text(format!(
+                                "Error encoding token '{token_to_encode}': {e}"
+                            )))
+                            .await;
+                        let _ = sender.close().await;
+                        return;
+                    }
+                }
+            };
 
-            // 3) Stream chunks back as *binary*, not debug strings
+            // 3) Stream chunks back as *binary*
             let chunk_size = 4;
             let tick_ms = 100;
-            let mut stream = Self::simulate_network_chunks(all_encoded, chunk_size, tick_ms);
+            let mut stream = Self::simulate_network_chunks(encoded_packed, chunk_size, tick_ms);
 
             while let Some(chunk) = stream.next().await {
                 if sender.send(Message::Binary(chunk)).await.is_err() {

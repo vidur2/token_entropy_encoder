@@ -11,10 +11,12 @@ function alphabet_size() {
 exports.alphabet_size = alphabet_size;
 
 /**
- * Decode a buffer of alphabet symbols into a token string
+ * Decode a buffer of packed bytes into a token string
+ *
+ * For m=2 (binary), expects format: [4 bytes: bit count] [packed bits]
  *
  * # Arguments
- * * `buffer` - A byte array containing alphabet symbols (each in range 0 to m-1)
+ * * `buffer` - A byte array containing packed data
  *
  * # Returns
  * The decoded token string, or an error message
@@ -44,13 +46,15 @@ function decode(buffer) {
 exports.decode = decode;
 
 /**
- * Encode a token string into a buffer of alphabet symbols
+ * Encode a token string into packed bytes
+ *
+ * For m=2 (binary), returns format: [4 bytes: bit count] [packed bits]
  *
  * # Arguments
  * * `token` - The token string to encode
  *
  * # Returns
- * A byte array containing alphabet symbols
+ * A byte array (packed if m=2, or raw symbols otherwise)
  * @param {string} token
  * @returns {Uint8Array}
  */

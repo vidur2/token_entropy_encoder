@@ -245,4 +245,94 @@ impl HuffmanGenerator {
             encoding_map,
         })
     }
+
+    /// Encode a token to packed bytes (only for m=2, binary alphabet)
+    ///
+    /// This packs bits into bytes for efficient transmission.
+    /// Format: [4 bytes: bit count (big-endian)] [packed bits]
+    ///
+    /// # Arguments
+    /// * `codeword` - The token to encode
+    ///
+    /// # Returns
+    /// Packed byte array with bit count header
+    pub fn encode_packed(&self, codeword: &str) -> Result<Vec<u8>, String> {
+        if self.m != 2 {
+            return Err(format!(
+                "Packed encoding only supported for binary (m=2), got m={}",
+                self.m
+            ));
+        }
+
+        // Get the bit sequence
+        let bits = self.encode(codeword)?;
+        
+        // Pack: [4 bytes: bit count] [packed bytes]
+        let bit_count = bits.len() as u32;
+        let mut packed = bit_count.to_be_bytes().to_vec();
+        
+        // Pack 8 bits into each byte (MSB first)
+        for chunk in bits.chunks(8) {
+            let mut byte = 0u8;
+            for (i, &bit) in chunk.iter().enumerate() {
+                if bit != 0 {
+                    byte |= 1 << (7 - i);
+                }
+            }
+            packed.push(byte);
+        }
+        
+        Ok(packed)
+    }
+
+    /// Decode packed bytes to a token (only for m=2, binary alphabet)
+    ///
+    /// This unpacks bits from bytes and then decodes them.
+    /// Expected format: [4 bytes: bit count (big-endian)] [packed bits]
+    ///
+    /// # Arguments
+    /// * `packed` - Packed byte array with bit count header
+    ///
+    /// # Returns
+    /// The decoded token
+    pub fn decode_packed(&self, packed: &[u8]) -> Result<String, String> {
+        if self.m != 2 {
+            return Err(format!(
+                "Packed decoding only supported for binary (m=2), got m={}",
+                self.m
+            ));
+        }
+
+        if packed.len() < 4 {
+            return Err("Packed data too short: need at least 4 bytes for header".to_string());
+        }
+
+        // Extract bit count from first 4 bytes (big-endian)
+        let bit_count = u32::from_be_bytes([packed[0], packed[1], packed[2], packed[3]]) as usize;
+        
+        // Unpack bits from remaining bytes
+        let mut bits = Vec::with_capacity(bit_count);
+        for &byte in &packed[4..] {
+            for i in (0..8).rev() {
+                bits.push((byte >> i) & 1);
+                if bits.len() == bit_count {
+                    break;
+                }
+            }
+            if bits.len() == bit_count {
+                break;
+            }
+        }
+
+        if bits.len() != bit_count {
+            return Err(format!(
+                "Could not unpack {} bits from {} bytes",
+                bit_count,
+                packed.len() - 4
+            ));
+        }
+
+        // Decode the unpacked bits
+        self.decode(&bits)
+    }
 }

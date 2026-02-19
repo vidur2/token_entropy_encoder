@@ -2,6 +2,7 @@ target/
 src/
 examples/
 scripts/
+node-examples/
 .env
 .gitignore
 Cargo.lock

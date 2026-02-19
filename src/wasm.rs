@@ -18,32 +18,52 @@ pub fn init() {
     Lazy::force(&HUFFMAN);
 }
 
-/// Decode a buffer of alphabet symbols into a token string
+/// Decode a buffer of packed bytes into a token string
+///
+/// For m=2 (binary), expects format: [4 bytes: bit count] [packed bits]
 ///
 /// # Arguments
-/// * `buffer` - A byte array containing alphabet symbols (each in range 0 to m-1)
+/// * `buffer` - A byte array containing packed data
 ///
 /// # Returns
 /// The decoded token string, or an error message
 #[wasm_bindgen]
 pub fn decode(buffer: &[u8]) -> Result<String, JsValue> {
-    HUFFMAN
-        .decode(buffer)
-        .map_err(|e| JsValue::from_str(&format!("Decode error: {}", e)))
+    if HUFFMAN.alphabet_size() == 2 {
+        // Use packed decoding for binary alphabet
+        HUFFMAN
+            .decode_packed(buffer)
+            .map_err(|e| JsValue::from_str(&format!("Decode error: {}", e)))
+    } else {
+        // Use regular decoding for non-binary alphabets
+        HUFFMAN
+            .decode(buffer)
+            .map_err(|e| JsValue::from_str(&format!("Decode error: {}", e)))
+    }
 }
 
-/// Encode a token string into a buffer of alphabet symbols
+/// Encode a token string into packed bytes
+///
+/// For m=2 (binary), returns format: [4 bytes: bit count] [packed bits]
 ///
 /// # Arguments
 /// * `token` - The token string to encode
 ///
 /// # Returns
-/// A byte array containing alphabet symbols
+/// A byte array (packed if m=2, or raw symbols otherwise)
 #[wasm_bindgen]
 pub fn encode(token: &str) -> Result<Vec<u8>, JsValue> {
-    HUFFMAN
-        .encode(token)
-        .map_err(|e| JsValue::from_str(&format!("Encode error: {}", e)))
+    if HUFFMAN.alphabet_size() == 2 {
+        // Use packed encoding for binary alphabet
+        HUFFMAN
+            .encode_packed(token)
+            .map_err(|e| JsValue::from_str(&format!("Encode error: {}", e)))
+    } else {
+        // Use regular encoding for non-binary alphabets
+        HUFFMAN
+            .encode(token)
+            .map_err(|e| JsValue::from_str(&format!("Encode error: {}", e)))
+    }
 }
 
 /// Get the alphabet size of the Huffman encoder

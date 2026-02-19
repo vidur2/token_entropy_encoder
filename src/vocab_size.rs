@@ -1,1 +1,1 @@
-pub const VOCAB_SIZE: usize = 128256;
+pub const VOCAB_SIZE: usize = 0;
