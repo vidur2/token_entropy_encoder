@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct TrieNode {
     /// The codeword at this leaf node (None for internal nodes)
-    pub(crate) codeword: Option<String>,
+    pub(crate) codeword: Option<u32>,
     /// Child nodes indexed by alphabet symbol (0 to m-1)
     pub(crate) children: Vec<Option<Box<TrieNode>>>,
     /// Probability of this node (used during construction)
@@ -13,7 +13,7 @@ pub(crate) struct TrieNode {
 
 impl TrieNode {
     /// Create a new leaf node with a codeword
-    pub(crate) fn new_leaf(codeword: String, probability: f64) -> Self {
+    pub(crate) fn new_leaf(codeword: u32, probability: f64) -> Self {
         TrieNode {
             codeword: Some(codeword),
             children: Vec::new(),

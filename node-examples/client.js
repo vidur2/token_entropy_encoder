@@ -18,13 +18,14 @@ async function testWebSocketChat() {
     ws.on('open', () => {
         console.log('Connected to server!\n');
 
-        // Send a chat message
-        const message = 'Hello world from the client';
+        // Send token IDs to encode
+        // Example: common token IDs like [100, 200, 300]
+        const tokenIds = [100, 200, 300, 400, 500];
         const request = {
-            message: message
+            token_ids: tokenIds
         };
 
-        console.log('Sending message:', message);
+        console.log('Sending token IDs:', tokenIds);
         ws.send(JSON.stringify(request));
         console.log('Waiting for encoded response chunks...\n');
     });

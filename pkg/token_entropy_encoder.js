@@ -11,7 +11,19 @@ function alphabet_size() {
 exports.alphabet_size = alphabet_size;
 
 /**
- * Decode a buffer of packed bytes into a token string
+ * Get the weighted average code length using probabilities from the tree
+ *
+ * Returns the expected code length: sum(p_i * length_i) for all tokens
+ * @returns {number}
+ */
+function average_code_length() {
+    const ret = wasm.average_code_length();
+    return ret;
+}
+exports.average_code_length = average_code_length;
+
+/**
+ * Decode a buffer of packed bytes into a token ID
  *
  * For m=2 (binary), expects format: [4 bytes: bit count] [packed bits]
  *
@@ -19,34 +31,23 @@ exports.alphabet_size = alphabet_size;
  * * `buffer` - A byte array containing packed data
  *
  * # Returns
- * The decoded token string, or an error message
+ * The decoded token ID, or an error message
  * @param {Uint8Array} buffer
- * @returns {string}
+ * @returns {number}
  */
 function decode(buffer) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passArray8ToWasm0(buffer, wasm.__wbindgen_malloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.decode(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    const ptr0 = passArray8ToWasm0(buffer, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
     }
+    return ret[0] >>> 0;
 }
 exports.decode = decode;
 
 /**
- * Decode a buffer of packed bytes into multiple token strings
+ * Decode a buffer of packed bytes into multiple token IDs
  *
  * For m=2 (binary), expects format: [4 bytes: bit count] [packed bits]
  * Decodes all tokens sequentially from the buffer.
@@ -55,7 +56,7 @@ exports.decode = decode;
  * * `buffer` - A byte array containing packed data
  *
  * # Returns
- * An array of decoded token strings, or an error message
+ * An array of decoded token IDs, or an error message
  * @param {Uint8Array} buffer
  * @returns {any[]}
  */
@@ -73,28 +74,26 @@ function decode_bulk(buffer) {
 exports.decode_bulk = decode_bulk;
 
 /**
- * Encode a token string into packed bytes
+ * Encode a token ID into packed bytes
  *
  * For m=2 (binary), returns format: [4 bytes: bit count] [packed bits]
  *
  * # Arguments
- * * `token` - The token string to encode
+ * * `token_id` - The token ID to encode
  *
  * # Returns
  * A byte array (packed if m=2, or raw symbols otherwise)
- * @param {string} token
+ * @param {number} token_id
  * @returns {Uint8Array}
  */
-function encode(token) {
-    const ptr0 = passStringToWasm0(token, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.encode(ptr0, len0);
+function encode(token_id) {
+    const ret = wasm.encode(token_id);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }
-    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v2;
+    return v1;
 }
 exports.encode = encode;
 
@@ -104,7 +103,7 @@ exports.encode = encode;
  * For m=2 (binary), returns format: [4 bytes: bit count] [packed bits for all tokens]
  *
  * # Arguments
- * * `tokens` - Array of token strings to encode
+ * * `tokens` - Array of token IDs to encode
  *
  * # Returns
  * A byte array containing all encoded tokens (packed if m=2, or raw symbols otherwise)
@@ -146,15 +145,18 @@ exports.is_loaded = is_loaded;
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
-        __wbg___wbindgen_string_get_72fb696202c56729: function(arg0, arg1) {
+        __wbg___wbindgen_number_get_8ff4255516ccad3e: function(arg0, arg1) {
             const obj = arg1;
-            const ret = typeof(obj) === 'string' ? obj : undefined;
-            var ptr1 = isLikeNone(ret) ? 0 : passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            var len1 = WASM_VECTOR_LEN;
-            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
-            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+            const ret = typeof(obj) === 'number' ? obj : undefined;
+            getDataViewMemory0().setFloat64(arg0 + 8 * 1, isLikeNone(ret) ? 0 : ret, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
         },
-        __wbindgen_cast_0000000000000001: function(arg0, arg1) {
+        __wbindgen_cast_0000000000000001: function(arg0) {
+            // Cast intrinsic for `F64 -> Externref`.
+            const ret = arg0;
+            return ret;
+        },
+        __wbindgen_cast_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
             return ret;
@@ -239,43 +241,6 @@ function passArrayJsValueToWasm0(array, malloc) {
     return ptr;
 }
 
-function passStringToWasm0(arg, malloc, realloc) {
-    if (realloc === undefined) {
-        const buf = cachedTextEncoder.encode(arg);
-        const ptr = malloc(buf.length, 1) >>> 0;
-        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
-        WASM_VECTOR_LEN = buf.length;
-        return ptr;
-    }
-
-    let len = arg.length;
-    let ptr = malloc(len, 1) >>> 0;
-
-    const mem = getUint8ArrayMemory0();
-
-    let offset = 0;
-
-    for (; offset < len; offset++) {
-        const code = arg.charCodeAt(offset);
-        if (code > 0x7F) break;
-        mem[ptr + offset] = code;
-    }
-    if (offset !== len) {
-        if (offset !== 0) {
-            arg = arg.slice(offset);
-        }
-        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
-        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
-        const ret = cachedTextEncoder.encodeInto(arg, view);
-
-        offset += ret.written;
-        ptr = realloc(ptr, len, offset, 1) >>> 0;
-    }
-
-    WASM_VECTOR_LEN = offset;
-    return ptr;
-}
-
 function takeFromExternrefTable0(idx) {
     const value = wasm.__wbindgen_externrefs.get(idx);
     wasm.__externref_table_dealloc(idx);
@@ -286,19 +251,6 @@ let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true 
 cachedTextDecoder.decode();
 function decodeText(ptr, len) {
     return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
-}
-
-const cachedTextEncoder = new TextEncoder();
-
-if (!('encodeInto' in cachedTextEncoder)) {
-    cachedTextEncoder.encodeInto = function (arg, view) {
-        const buf = cachedTextEncoder.encode(arg);
-        view.set(buf);
-        return {
-            read: arg.length,
-            written: buf.length
-        };
-    };
 }
 
 let WASM_VECTOR_LEN = 0;

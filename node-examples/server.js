@@ -36,20 +36,16 @@ wss.on('connection', (ws) => {
         try {
             // Parse the incoming JSON message
             const request = JSON.parse(data.toString());
-            const message = request.message;
+            const tokenIds = request.token_ids || [];
             
-            console.log(`Received message: "${message}"`);
+            console.log(`Received token IDs: [${tokenIds.join(', ')}]`);
             
-            // Split message into tokens (whitespace-separated)
-            const tokens = message.split(/\s+/);
-            console.log(`Tokens: [${tokens.join(', ')}]`);
+            // For now, encode just the first token ID (matching Rust server behavior)
+            const tokenIdToEncode = tokenIds[0] || 0;
+            console.log(`Encoding token ID: ${tokenIdToEncode}`);
             
-            // For now, encode just the first token (matching Rust server behavior)
-            const tokenToEncode = tokens[0] || 'test';
-            console.log(`Encoding token: "${tokenToEncode}"`);
-            
-            // Encode the token using WASM
-            const encoded = encode(tokenToEncode);
+            // Encode the token ID using WASM
+            const encoded = encode(tokenIdToEncode);
             console.log(`Encoded to ${encoded.length} bytes`);
             
             // Stream the encoded data in chunks

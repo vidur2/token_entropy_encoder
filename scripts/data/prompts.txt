@@ -1,0 +1,79 @@
+Write a detailed explanation of how TCP congestion control works.
+
+Summarize the following article in 3 paragraphs:
+The global energy transition has accelerated in recent years...
+
+Explain the difference between supervised and unsupervised learning.
+
+Write a short story about a programmer debugging a distributed system at 3am.
+
+Give step-by-step instructions for baking sourdough bread.
+
+Explain the concept of entropy in information theory.
+
+Translate the following sentence into Spanish:
+The quick brown fox jumps over the lazy dog.
+
+Write a professional email declining a meeting request politely.
+
+Explain what a REST API is and how it works.
+
+Provide a Python implementation of quicksort.
+
+What are the economic impacts of inflation?
+
+Describe how neural networks perform backpropagation.
+
+Explain what a blockchain is in simple terms.
+
+Write a product description for a new wireless mechanical keyboard.
+
+Explain the difference between HTTP and HTTPS.
+
+Describe how memory allocation works in operating systems.
+
+Explain how the A* search algorithm works.
+
+Provide a C++ example of a thread-safe queue.
+
+What are the benefits and drawbacks of remote work?
+
+Write a brief analysis of Shakespeare's Macbeth.
+
+Explain how a CPU pipeline works.
+
+Describe the difference between SQL and NoSQL databases.
+
+Write a blog post about the future of artificial intelligence.
+
+Explain the concept of mutual information.
+
+Write a short fictional dialogue between two astronauts on Mars.
+
+Describe the advantages of renewable energy sources.
+
+Explain the difference between compilation and interpretation.
+
+Provide a JavaScript example using async/await.
+
+Explain how gradient descent works.
+
+Write a concise executive summary about climate change policy.
+
+Describe the CAP theorem in distributed systems.
+
+Explain what a hash table is and how collisions are handled.
+
+Write a motivational speech about persistence.
+
+Explain the difference between IPv4 and IPv6.
+
+Provide an example of a binary search implementation.
+
+Describe the process of photosynthesis.
+
+Explain what a monad is in functional programming.
+
+Write a detailed explanation of how TLS encryption works.
+
+Summarize the history of the Roman Empire in 5 paragraphs.

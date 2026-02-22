@@ -23,9 +23,16 @@ npm run example
 
 This will test:
 - Loading the WASM module
-- Encoding tokens to binary
-- Decoding binary to tokens
+- Encoding token IDs (u32) to binary
+- Decoding binary to token IDs (u32)
 - Round-trip encoding/decoding
+
+**Note:** The API now uses u32 token IDs instead of string tokens. For example:
+```javascript
+const tokenId = 1234;  // Token ID as a number
+const encoded = encode(tokenId);  // Returns Uint8Array
+const decoded = decode(encoded);  // Returns number (token ID)
+```
 
 ### 2. WebSocket Client (`client.js`)
 
@@ -45,26 +52,34 @@ npm run client
 This will:
 1. Check if the server is running
 2. Connect to the WebSocket server at `ws://127.0.0.1:3000/chat`
-3. Send a chat message
+3. Send a request with token IDs: `{ "token_ids": [100, 200, 300] }`
 4. Receive encoded chunks from the server (with simulated network delays)
 5. Accumulate all chunks
+6. Decode all chunks back to token IDs
 6. Decode the complete message using the WASM module
 
 ## How It Works
 
 The WebSocket client demonstrates the full flow:
-1. Client sends a text message to the server
-2. Server tokenizes and encodes the message using Huffman encoding
+1. Client sends token IDs to the server: `{ "token_ids": [100, 200, 300] }`
+2. Server encodes the token IDs using Huffman encoding
 3. Server streams the encoded data back in chunks (simulating network conditions)
 4. Client accumulates all binary chunks
-5. Client decodes the complete buffer using the WASM module
+5. Client decodes the complete buffer using the WASM module back to token IDs
+
+**API Changes:** The system now uses u32 token IDs throughout instead of string tokens. This provides:
+- More efficient encoding/decoding (no string parsing)
+- Direct compatibility with tokenizer outputs
+- Fixed-size array-based lookups (O(1) instead of HashMap)
 
 ## Directory Structure
 
 ```
 node-examples/
-├── example.js          # Basic WASM usage examples
+├── example.js          # Basic WASM usage examples with token IDs
+├── test.js             # Comprehensive test suite
 ├── client.js           # WebSocket client that connects to Rust server
+├── server.js           # Node.js WebSocket server alternative
 ├── package.json        # Node.js dependencies (ws for WebSocket)
 └── README.md           # This file
 

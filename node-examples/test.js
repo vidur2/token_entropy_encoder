@@ -90,57 +90,58 @@ testGroup('Module Loading', () => {
 });
 
 testGroup('Basic Encoding/Decoding', () => {
-    const testTokens = ['Hello', 'world', 'test', 'the', 'a', 'is', 'to', 'of'];
+    // Test with common token IDs (typically 0-127 are frequent tokens)
+    const testTokenIds = [0, 1, 10, 50, 100, 500, 1000, 5000];
 
-    testTokens.forEach(token => {
-        test(`encode and decode token: "${token}"`, () => {
-            // Encode the token (returns packed bytes for m=2)
-            const packed = encode(token);
+    testTokenIds.forEach(tokenId => {
+        test(`encode and decode token ID: ${tokenId}`, () => {
+            // Encode the token ID (returns packed bytes for m=2)
+            const packed = encode(tokenId);
             assert(packed instanceof Uint8Array, 'Encode should return Uint8Array');
             assert(packed.length >= 4, 'Packed data should have at least 4-byte header');
 
             // Decode it back
             const decoded = decode(packed);
-            assertEquals(decoded, token, `Roundtrip failed for token "${token}"`);
+            assertEquals(decoded, tokenId, `Roundtrip failed for token ID ${tokenId}`);
         });
     });
 });
 
 testGroup('Packed Format Structure', () => {
     test('packed format has correct header', () => {
-        const token = 'Hello';
-        const packed = encode(token);
+        const tokenId = 100;
+        const packed = encode(tokenId);
         
         // First 4 bytes are the bit count (big-endian u32)
         const bitCount = (packed[0] << 24) | (packed[1] << 16) | (packed[2] << 8) | packed[3];
         
         // Bit count should be positive and reasonable
         assert(bitCount > 0, 'Bit count should be positive');
-        assert(bitCount < 1000, 'Bit count should be reasonable (< 1000 for short tokens)');
+        assert(bitCount < 1000, 'Bit count should be reasonable (< 1000 for typical tokens)');
         
-        console.log(`    Token "${token}" has ${bitCount} bits, packed into ${packed.length} bytes`);
+        console.log(`    Token ID ${tokenId} has ${bitCount} bits, packed into ${packed.length} bytes`);
     });
 
-    test('longer tokens need more bits', () => {
-        const shortToken = 'a';
-        const longToken = 'Hello';
+    test('different token IDs have different bit lengths', () => {
+        const tokenId1 = 10;  // Common token
+        const tokenId2 = 50000;  // Less common token
         
-        const shortPacked = encode(shortToken);
-        const longPacked = encode(longToken);
+        const packed1 = encode(tokenId1);
+        const packed2 = encode(tokenId2);
         
-        const shortBits = (shortPacked[0] << 24) | (shortPacked[1] << 16) | (shortPacked[2] << 8) | shortPacked[3];
-        const longBits = (longPacked[0] << 24) | (longPacked[1] << 16) | (longPacked[2] << 8) | longPacked[3];
+        const bits1 = (packed1[0] << 24) | (packed1[1] << 16) | (packed1[2] << 8) | packed1[3];
+        const bits2 = (packed2[0] << 24) | (packed2[1] << 16) | (packed2[2] << 8) | packed2[3];
         
-        console.log(`    "${shortToken}": ${shortBits} bits, "${longToken}": ${longBits} bits`);
-        // Note: This isn't always true for Huffman encoding (depends on token frequency)
+        console.log(`    Token ID ${tokenId1}: ${bits1} bits, Token ID ${tokenId2}: ${bits2} bits`);
+        // Note: Huffman encoding assigns shorter codes to more frequent tokens
         // so we just log it for information
     });
 });
 
 testGroup('Bit Packing Efficiency', () => {
     test('packing reduces size significantly', () => {
-        const token = 'test';
-        const packed = encode(token);
+        const tokenId = 100;
+        const packed = encode(tokenId);
         
         // Extract bit count
         const bitCount = (packed[0] << 24) | (packed[1] << 16) | (packed[2] << 8) | packed[3];
@@ -150,38 +151,31 @@ testGroup('Bit Packing Efficiency', () => {
         const packedSize = packed.length - 4; // Exclude header
         
         const compressionRatio = unpackedSize / Math.max(packedSize, 1);
-        console.log(`    Token "${token}": ${bitCount} bits → ${packedSize} packed bytes (${compressionRatio.toFixed(1)}x compression)`);
+        console.log(`    Token ID ${tokenId}: ${bitCount} bits → ${packedSize} packed bytes (${compressionRatio.toFixed(1)}x compression)`);
         
         assert(compressionRatio >= 7, 'Should achieve at least 7x compression from bit packing');
     });
 });
 
 testGroup('Roundtrip Tests', () => {
-    const tokens = [
-        'Hello',
-        'world',
-        'the',
-        'a',
-        'in',
-        'to',
-        'of',
-        'and',
-        'test',
-        'data',
-        'code',
-        'program'
+    // Test a range of token IDs from different parts of the vocabulary
+    const tokenIds = [
+        0, 1, 2, 10, 50,
+        100, 500, 1000,
+        5000, 10000, 50000,
+        100000, 128000
     ];
 
-    tokens.forEach(token => {
-        test(`roundtrip: "${token}"`, () => {
+    tokenIds.forEach(tokenId => {
+        test(`roundtrip: token ID ${tokenId}`, () => {
             try {
-                const packed = encode(token);
+                const packed = encode(tokenId);
                 const decoded = decode(packed);
-                assertEquals(decoded, token, `Roundtrip mismatch for "${token}"`);
+                assertEquals(decoded, tokenId, `Roundtrip mismatch for token ID ${tokenId}`);
             } catch (error) {
-                if (error.message.includes('not found in encoding map')) {
-                    // Token not in vocabulary - that's okay
-                    console.log(`    (Token "${token}" not in vocabulary - skipped)`);
+                if (error.message.includes('not found in encoding map') || error.message.includes('out of range')) {
+                    // Token ID not in tree - that's okay
+                    console.log(`    (Token ID ${tokenId} not in tree - skipped)`);
                 } else {
                     throw error;
                 }
@@ -204,25 +198,26 @@ testGroup('Error Handling', () => {
         }, 'Should throw error for incomplete header');
     });
 
-    test('encode unknown token throws error', () => {
+    test('encode out-of-range token ID throws error', () => {
         assertThrows(() => {
-            encode('ThisTokenDefinitelyDoesNotExistInTheVocabulary123456789');
-        }, 'Should throw error for unknown token');
+            // Token ID beyond VOCAB_SIZE (128256)
+            encode(999999);
+        }, 'Should throw error for out-of-range token ID');
     });
 });
 
 testGroup('Edge Cases', () => {
-    test('encode/decode with common punctuation tokens', () => {
-        const punctuationTokens = ['.', ',', '!', '?', ';', ':'];
+    test('encode/decode with boundary token IDs', () => {
+        const boundaryTokenIds = [0, 1, 127, 128, 255, 256];
         
-        punctuationTokens.forEach(token => {
+        boundaryTokenIds.forEach(tokenId => {
             try {
-                const packed = encode(token);
+                const packed = encode(tokenId);
                 const decoded = decode(packed);
-                assertEquals(decoded, token, `Roundtrip failed for "${token}"`);
+                assertEquals(decoded, tokenId, `Roundtrip failed for token ID ${tokenId}`);
             } catch (error) {
-                // Some punctuation might not be in vocab as standalone tokens
-                console.log(`    Token "${token}" not in vocabulary - skipped`);
+                // Some token IDs might not be in tree
+                console.log(`    Token ID ${tokenId} not in tree - skipped`);
             }
         });
     });
@@ -230,14 +225,14 @@ testGroup('Edge Cases', () => {
 
 testGroup('Performance Check', () => {
     test('encode/decode 1000 tokens quickly', () => {
-        const token = 'test';
+        const tokenId = 100;
         const iterations = 1000;
         const start = Date.now();
         
         for (let i = 0; i < iterations; i++) {
-            const packed = encode(token);
+            const packed = encode(tokenId);
             const decoded = decode(packed);
-            assert(decoded === token);
+            assert(decoded === tokenId);
         }
         
         const elapsed = Date.now() - start;

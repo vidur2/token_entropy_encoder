@@ -14,6 +14,7 @@ if (len(argv) >= 2):
     model_id = argv[1]
     set_key('.env', 'MODEL_ID', model_id)
 else:
+    
     print(f"Loading {getenv('MODEL_ID')} from env")
     model_id = getenv('MODEL_ID')
 tokenizer = AutoTokenizer.from_pretrained(model_id)

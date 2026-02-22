@@ -1,9 +1,7 @@
 use axum::{
-    Router,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     http::StatusCode,
     response::IntoResponse,
-    routing::get,
 };
 use futures::{SinkExt, StreamExt, stream::Stream};
 use serde::{Deserialize, Serialize};
@@ -15,7 +13,7 @@ use crate::huffman::generator::HuffmanGenerator;
 /// Request body for the /chat endpoint
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ChatRequest {
-    pub message: String,
+    pub token_ids: Vec<u32>,
 }
 
 /// Trait that generalizes over an axum async websocket server with Huffman encoding capabilities
@@ -78,27 +76,26 @@ pub trait HuffmanServer<'a>: Send + Sync + Sized {
                 }
             };
 
-            let message = payload.message;
+            let token_ids = payload.token_ids;
 
             // 2) Encode the first token (for m=2, this packs bits into bytes)
             let huffman = Self::get_huffman();
-            let tokens: Vec<&str> = message.split_whitespace().collect();
 
             // For now, just encode the first token as a test
-            // TODO: Implement proper multi-token encoding with delimiters or separate messages
-            let token_to_encode = tokens.first().unwrap_or(&"test");
+            // TODO: Implement proper multi-token encoding
+            let token_id = token_ids.first().copied().unwrap_or(0);
             
             let encoded_packed = if huffman.alphabet_size() == 2 {
                 // Use packed encoding for binary alphabet
-                match huffman.encode_packed(token_to_encode) {
+                match huffman.encode_packed(token_id) {
                     Ok(packed) => {
-                        println!("Encoded token '{}' to {} packed bytes", token_to_encode, packed.len());
+                        println!("Encoded token ID {} to {} packed bytes", token_id, packed.len());
                         packed
                     }
                     Err(e) => {
                         let _ = sender
                             .send(Message::Text(format!(
-                                "Error encoding token '{token_to_encode}': {e}"
+                                "Error encoding token ID {}: {}", token_id, e
                             )))
                             .await;
                         let _ = sender.close().await;
@@ -107,15 +104,15 @@ pub trait HuffmanServer<'a>: Send + Sync + Sized {
                 }
             } else {
                 // Use regular encoding for non-binary alphabets
-                match huffman.encode(token_to_encode) {
+                match huffman.encode(token_id) {
                     Ok(symbols) => {
-                        println!("Encoded token '{}' to {} symbols", token_to_encode, symbols.len());
+                        println!("Encoded token ID {} to {} symbols", token_id, symbols.len());
                         symbols
                     }
                     Err(e) => {
                         let _ = sender
                             .send(Message::Text(format!(
-                                "Error encoding token '{token_to_encode}': {e}"
+                                "Error encoding token ID {}: {}", token_id, e
                             )))
                             .await;
                         let _ = sender.close().await;
