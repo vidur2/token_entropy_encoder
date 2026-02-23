@@ -1,4 +1,5 @@
 use crate::huffman::HuffmanGenerator;
+use crate::token_compressor::TokenCompressor;
 
 #[cfg(test)]
 mod tests {
@@ -6,13 +7,13 @@ mod tests {
 
     #[test]
     fn test_binary_huffman() {
-        let token_ids = [0u32, 1u32, 2u32, 3u32];
+        let num_tokens = 4;
         let pmf = [0.4, 0.3, 0.2, 0.1];
         let m = 2u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
 
-        // Test encoding and decoding roundtrip
+        // Test encoding and decoding roundtrip (token IDs are 0..3)
         for token_id in [0u32, 1u32, 2u32, 3u32] {
             let encoded = huffman.encode(token_id).unwrap();
             let decoded = huffman.decode(&encoded).unwrap();
@@ -25,14 +26,14 @@ mod tests {
 
     #[test]
     fn test_ternary_huffman() {
-        let token_ids = [10u32, 20u32, 30u32];
+        let num_tokens = 3;
         let pmf = [0.5, 0.3, 0.2];
         let m = 3u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
 
-        // Test encoding and decoding roundtrip
-        for token_id in [10u32, 20u32, 30u32] {
+        // Test encoding and decoding roundtrip (token IDs are 0..2)
+        for token_id in [0u32, 1u32, 2u32] {
             let encoded = huffman.encode(token_id).unwrap();
             let decoded = huffman.decode(&encoded).unwrap();
             assert_eq!(decoded, token_id);
@@ -44,53 +45,53 @@ mod tests {
 
     #[test]
     fn test_invalid_pmf_sum() {
-        let token_ids = [0u32, 1u32];
+        let num_tokens = 2;
         let pmf = [0.3, 0.5]; // Sum is 0.8, not 1.0
         let m = 2u8;
 
-        let result = HuffmanGenerator::new(&token_ids, &pmf, m);
+        let result = HuffmanGenerator::new(num_tokens, &pmf, m);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_alphabet_size() {
-        let token_ids = [0u32];
+        let num_tokens = 1;
         let pmf = [1.0];
         let m = 1u8; // Invalid, must be at least 2
 
-        let result = HuffmanGenerator::new(&token_ids, &pmf, m);
+        let result = HuffmanGenerator::new(num_tokens, &pmf, m);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_encode_unknown_codeword() {
-        let token_ids = [0u32, 1u32];
+        let num_tokens = 2;
         let pmf = [0.6, 0.4];
         let m = 2u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
         let result = huffman.encode(99u32); // Token ID not in tree
         assert!(result.is_err());
     }
 
     #[test]
     fn test_decode_invalid_symbol() {
-        let token_ids = [0u32, 1u32];
+        let num_tokens = 2;
         let pmf = [0.6, 0.4];
         let m = 2u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
         let result = huffman.decode(&[2]); // Invalid symbol for binary
         assert!(result.is_err());
     }
 
     #[test]
     fn test_decode_invalid_path() {
-        let token_ids = [0u32, 1u32, 2u32];
+        let num_tokens = 3;
         let pmf = [0.5, 0.3, 0.2];
         let m = 2u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
 
         // Try to decode a path that doesn't lead to a leaf
         // This is tricky as we need to find such a path
@@ -107,26 +108,26 @@ mod tests {
 
     #[test]
     fn test_single_codeword() {
-        let token_ids = [42u32];
+        let num_tokens = 1;
         let pmf = [1.0];
         let m = 2u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
-        let encoded = huffman.encode(42u32).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
+        let encoded = huffman.encode(0u32).unwrap(); // Token ID will be 0
         let decoded = huffman.decode(&encoded).unwrap();
-        assert_eq!(decoded, 42u32);
+        assert_eq!(decoded, 0u32);
     }
 
     #[test]
     fn test_larger_alphabet() {
-        let token_ids = [100u32, 101u32, 102u32, 103u32, 104u32];
+        let num_tokens = 5;
         let pmf = [0.2, 0.2, 0.2, 0.2, 0.2];
         let m = 5u8; // Pentary alphabet
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
 
-        // Test roundtrip for all token IDs
-        for token_id in [100u32, 101u32, 102u32, 103u32, 104u32] {
+        // Test roundtrip for all token IDs (0..4)
+        for token_id in [0u32, 1u32, 2u32, 3u32, 4u32] {
             let encoded = huffman.encode(token_id).unwrap();
             assert!(encoded.iter().all(|&s| s < m));
             let decoded = huffman.decode(&encoded).unwrap();
@@ -136,11 +137,11 @@ mod tests {
 
     #[test]
     fn test_json_serialization() {
-        let token_ids = [0u32, 1u32, 2u32, 3u32];
+        let num_tokens = 4;
         let pmf = [0.4, 0.3, 0.2, 0.1];
         let m = 2u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
 
         // Serialize to JSON
         let json = huffman.to_json().unwrap();
@@ -152,7 +153,7 @@ mod tests {
         // Verify alphabet size is preserved
         assert_eq!(huffman_from_json.alphabet_size(), m);
 
-        // Verify all token IDs can be encoded and decoded correctly
+        // Verify all token IDs (0..3) can be encoded and decoded correctly
         for token_id in [0u32, 1u32, 2u32, 3u32] {
             let original_encoded = huffman.encode(token_id).unwrap();
             let restored_encoded = huffman_from_json.encode(token_id).unwrap();
@@ -168,11 +169,11 @@ mod tests {
 
     #[test]
     fn test_json_roundtrip_ternary() {
-        let token_ids = [1000u32, 1001u32, 1002u32, 1003u32, 1004u32];
+        let num_tokens = 5;
         let pmf = [0.3, 0.25, 0.2, 0.15, 0.1];
         let m = 3u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
 
         // Serialize and deserialize
         let json = huffman.to_json().unwrap();
@@ -185,8 +186,8 @@ mod tests {
             huffman.get_encoding_map().len()
         );
 
-        // Test all token IDs
-        for token_id in [1000u32, 1001u32, 1002u32, 1003u32, 1004u32] {
+        // Test all token IDs (0..4)
+        for token_id in [0u32, 1u32, 2u32, 3u32, 4u32] {
             let encoded = restored.encode(token_id).unwrap();
             let decoded = restored.decode(&encoded).unwrap();
             assert_eq!(decoded, token_id);
@@ -194,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // This test requires enc_dec.json to be regenerated with the new u32 format
+    // #[ignore] // This test requires enc_dec.json to be regenerated with the new u32 format
     fn test_enc_dec_json_loading() {
         // Load the enc_dec.json file created by create_tree
         let json_data = include_str!("../../../enc_dec.json");
@@ -241,17 +242,17 @@ mod tests {
     #[test]
     fn test_packed_encoding_decoding() {
         // Create a simple binary Huffman tree
-        let token_ids = vec![50u32, 51u32, 52u32, 53u32];
+        let num_tokens = 4;
         let pmf = vec![0.4, 0.3, 0.2, 0.1];
         let m = 2u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m)
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m)
             .expect("Failed to create HuffmanGenerator");
 
-        // Test packed encoding/decoding for each token
-        for token_id in &token_ids {
+        // Test packed encoding/decoding for each token (0..3)
+        for token_id in 0..num_tokens as u32 {
             // Test packed encoding
-            let packed = huffman.encode_packed(*token_id)
+            let packed = huffman.encode_packed(token_id)
                 .expect(&format!("Failed to pack encode token ID {}", token_id));
             
             println!("Token ID {} packed to {} bytes", token_id, packed.len());
@@ -265,7 +266,7 @@ mod tests {
             let decoded = huffman.decode_packed(&packed)
                 .expect(&format!("Failed to pack decode token ID {}", token_id));
             
-            assert_eq!(decoded, *token_id, "Packed roundtrip failed for token ID {}", token_id);
+            assert_eq!(decoded, token_id, "Packed roundtrip failed for token ID {}", token_id);
             println!("  ✓ Packed roundtrip successful");
         }
     }
@@ -273,11 +274,11 @@ mod tests {
     #[test]
     fn test_packed_encoding_only_for_binary() {
         // Create a ternary Huffman tree
-        let token_ids = vec![0u32, 1u32, 2u32];
+        let num_tokens = 3;
         let pmf = vec![0.5, 0.3, 0.2];
         let m = 3u8;
 
-        let huffman = HuffmanGenerator::new(&token_ids, &pmf, m).unwrap();
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
 
         // Packed encoding should fail for m != 2
         let result = huffman.encode_packed(0u32);
@@ -292,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // This test requires enc_dec.json to be regenerated with the new u32 format
+    // #[ignore] // This test requires enc_dec.json to be regenerated with the new u32 format
     fn test_enc_dec_json_with_packed_encoding() {
         // Load the enc_dec.json file
         let json_data = include_str!("../../../enc_dec.json");

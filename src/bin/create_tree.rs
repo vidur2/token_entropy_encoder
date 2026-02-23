@@ -18,10 +18,7 @@ fn main() {
         panic!("pmf length ({}) must match VOCAB_SIZE ({})", pmf.len(), VOCAB_SIZE);
     }
 
-    // Create token IDs from 0 to VOCAB_SIZE-1
-    let token_ids: Vec<u32> = (0..VOCAB_SIZE as u32).collect();
-    
-    let json = HuffmanGenerator::new(&token_ids, &pmf, 2)
+    let json = HuffmanGenerator::new(VOCAB_SIZE, &pmf, 2)
         .unwrap()
         .to_json()
         .unwrap();

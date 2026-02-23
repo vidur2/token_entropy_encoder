@@ -2,6 +2,7 @@ use super::priority_node::PriorityNode;
 use super::trie_node::TrieNode;
 use serde::{Deserialize, Serialize};
 use std::collections::{BinaryHeap, HashSet};
+use crate::token_compressor::TokenCompressor;
 
 #[cfg(not(target_arch = "wasm32"))]
 // use crate::vocab_size::VOCAB_SIZE;
@@ -23,29 +24,194 @@ pub struct HuffmanGenerator {
     valid_tokens: std::collections::HashSet<u32>,
 }
 
-impl HuffmanGenerator {
-    /// Create a new HuffmanGenerator from token IDs, their probabilities, and alphabet size
+impl TokenCompressor for HuffmanGenerator {
+    /// Encode a token ID into a sequence of alphabet symbols
     ///
     /// # Arguments
-    /// * `token_ids` - Slice of token IDs (u32)
+    /// * `token_id` - The token ID to encode
+    ///
+    /// # Returns
+    /// A vector of alphabet symbols (0 to m-1) representing the encoding
+    fn encode(&self, token_id: u32) -> Result<Vec<u8>, String> {
+        let token_idx = token_id as usize;
+        if token_idx >= self.encoding_map.len() {
+        if !self.valid_tokens.contains(&token_id) {
+            return Err(format!("Token ID {} not found in encoding map", token_id));
+        }
+        
+            return Err(format!("Token ID {} is out of range (max: {})", token_id, self.encoding_map.len() - 1));
+        }
+        
+        Ok(self.encoding_map[token_idx].clone())
+    }
+
+    /// Decode a sequence of alphabet symbols into a token ID
+    ///
+    /// # Arguments
+    /// * `alphabet_seq` - Sequence of alphabet symbols (each in range 0 to m-1)
+    ///
+    /// # Returns
+    /// The decoded token ID
+    fn decode(&self, alphabet_seq: &[u8]) -> Result<u32, String> {
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| "Huffman tree not initialized".to_string())?;
+
+        let mut current = root.as_ref();
+
+        for &symbol in alphabet_seq {
+            if symbol >= self.m {
+                return Err(format!(
+                    "Invalid alphabet symbol {} (must be < {})",
+                    symbol, self.m
+                ));
+            }
+
+            current = current.children[symbol as usize]
+                .as_ref()
+                .ok_or_else(|| format!("Invalid encoding: no child for symbol {}", symbol))?
+                .as_ref();
+        }
+
+        if !current.is_leaf() {
+            return Err("Invalid encoding: path does not lead to a leaf".to_string());
+        }
+
+        current
+            .codeword
+            .ok_or_else(|| "Reached leaf with no token ID".to_string())
+    }
+
+    /// Encode multiple tokens into a sequence of alphabet symbols
+    ///
+    /// # Arguments
+    /// * `token_ids` - Slice of token IDs to encode
+    ///
+    /// # Returns
+    /// A vector of alphabet symbols representing all encoded tokens
+    fn encode_bulk(&self, token_ids: &[u32]) -> Result<Vec<u8>, String> {
+        let mut result = Vec::new();
+        for &token_id in token_ids {
+            let encoded = self.encode(token_id)?;
+            result.extend(encoded);
+        }
+        Ok(result)
+    }
+
+    /// Decode a sequence of alphabet symbols into multiple token IDs
+    ///
+    /// This decodes tokens sequentially from the symbol stream until all symbols are consumed.
+    ///
+    /// # Arguments
+    /// * `alphabet_seq` - Sequence of alphabet symbols (each in range 0 to m-1)
+    ///
+    /// # Returns
+    /// Vector of decoded token IDs
+    fn decode_bulk(&self, alphabet_seq: &[u8]) -> Result<Vec<u32>, String> {
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| "Huffman tree not initialized".to_string())?;
+
+        let mut result = Vec::new();
+        let mut current = root.as_ref();
+        
+        for &symbol in alphabet_seq {
+            if symbol >= self.m {
+                return Err(format!(
+                    "Invalid alphabet symbol {} (must be < {})",
+                    symbol, self.m
+                ));
+            }
+
+            current = current.children[symbol as usize]
+                .as_ref()
+                .ok_or_else(|| format!("Invalid encoding: no child for symbol {}", symbol))?
+                .as_ref();
+
+            // Check if we've reached a leaf (completed a token)
+            if current.is_leaf() {
+                let token_id = current
+                    .codeword
+                    .ok_or_else(|| "Reached leaf with no token ID".to_string())?;
+                result.push(token_id);
+                // Reset to root for next token
+                current = root.as_ref();
+            }
+        }
+
+        // Ensure we ended at the root (all tokens were complete)
+        if !current.is_leaf() && current as *const _ != root.as_ref() as *const _ {
+            return Err("Incomplete token at end of sequence".to_string());
+        }
+
+        Ok(result)
+    }
+
+    /// Calculate the weighted average code length using probabilities from the tree
+    /// 
+    /// This calculates the expected code length: sum(p_i * length_i) for all tokens,
+    /// using the probabilities stored in the tree's leaf nodes.
+    /// 
+    /// # Returns
+    /// The weighted average code length in bits/symbols
+    fn average_code_length(&self) -> f64 {
+        if self.root.is_none() {
+            return 0.0;
+        }
+        
+        let mut weighted_sum = 0.0;
+        
+        // Traverse the tree to find all leaf nodes and calculate weighted sum
+        let mut stack = vec![(self.root.as_ref().unwrap().as_ref(), 0usize)];
+        
+        while let Some((node, depth)) = stack.pop() {
+            if node.is_leaf() {
+                if let Some(token_id) = node.codeword {
+                    // Skip dummy nodes (u32::MAX)
+                    if token_id != u32::MAX {
+                        let code_length = self.encoding_map[token_id as usize].len();
+                        weighted_sum += node.probability * code_length as f64;
+                    }
+                }
+            } else {
+                // Push children onto stack
+                for child_opt in &node.children {
+                    if let Some(child) = child_opt {
+                        stack.push((child.as_ref(), depth + 1));
+                    }
+                }
+            }
+        }
+        
+        weighted_sum
+    }
+}
+
+impl HuffmanGenerator {
+    /// Create a new HuffmanGenerator from number of tokens, their probabilities, and alphabet size
+    ///
+    /// Token IDs are generated as 0..(num_tokens-1)
+    ///
+    /// # Arguments
+    /// * `num_tokens` - Number of tokens (generates token IDs 0..num_tokens-1)
     /// * `pmf` - Probability mass function for each token (must sum to ~1.0)
     /// * `m` - Alphabet size (2 for binary, 3 for ternary, etc.)
     ///
     /// # Returns
     /// A new HuffmanGenerator with the constructed trie and encoding map
     pub fn new(
-        token_ids: &[u32],
+        num_tokens: usize,
         pmf: &[f64],
         m: u8,
     ) -> Result<Self, String> {
-        let n = token_ids.len();
-        
-        if n == 0 {
+        if num_tokens == 0 {
             return Err("Cannot create Huffman tree with zero tokens".to_string());
         }
         
-        if n != pmf.len() {
-            return Err("Token IDs and PMF must have the same length".to_string());
+        if num_tokens != pmf.len() {
+            return Err("Number of tokens and PMF must have the same length".to_string());
         }
 
         if m < 2 {
@@ -59,11 +225,10 @@ impl HuffmanGenerator {
         }
 
         // Build the Huffman tree
-        let root = Self::build_huffman_tree(token_ids, pmf, m as usize);
+        let root = Self::build_huffman_tree(num_tokens, pmf, m as usize);
 
         // Build encoding map as a fixed-size array
-        let token_bound_size = token_ids.iter().max().unwrap();
-        let mut encoding_map = vec![Vec::new(); (token_bound_size.clone() + 1) as usize];
+        let mut encoding_map = vec![Vec::new(); num_tokens];
         let mut valid_tokens = HashSet::new();
         Self::build_encoding_map(&root, &mut Vec::new(), &mut encoding_map, &mut valid_tokens);
 
@@ -77,16 +242,16 @@ impl HuffmanGenerator {
 
     /// Build the m-ary Huffman tree using a priority queue
     fn build_huffman_tree(
-        token_ids: &[u32],
+        num_tokens: usize,
         pmf: &[f64],
         m: usize,
     ) -> Box<TrieNode> {
-        let n = token_ids.len();
+        let n = num_tokens;
         let mut heap = BinaryHeap::new();
 
-        // Initialize heap with leaf nodes
-        for (token_id, &prob) in token_ids.iter().zip(pmf.iter()) {
-            let node = TrieNode::new_leaf(*token_id, prob);
+        // Initialize heap with leaf nodes (token IDs from 0 to num_tokens-1)
+        for (token_id, &prob) in (0..num_tokens as u32).zip(pmf.iter()) {
+            let node = TrieNode::new_leaf(token_id, prob);
             heap.push(PriorityNode::new(node));
         }
         // For m-ary Huffman, we need to ensure we can combine m nodes at each step
@@ -120,6 +285,11 @@ impl HuffmanGenerator {
         heap.pop().unwrap().node
     }
 
+    /// Get the alphabet size
+    pub fn alphabet_size(&self) -> u8 {
+        self.m
+    }
+
     /// Build the encoding map (token_id -> alphabet sequence) using explicit iteration
     fn build_encoding_map(node: &TrieNode, _path: &mut Vec<u8>, map: &mut Vec<Vec<u8>>, valid_tokens: &mut HashSet<u32>) {
         // Use explicit stack to avoid stack overflow with large trees
@@ -148,126 +318,25 @@ impl HuffmanGenerator {
         }
     }
 
-    /// Encode a token ID into a sequence of alphabet symbols
-    ///
-    /// # Arguments
-    /// * `token_id` - The token ID to encode
-    ///
-    /// # Returns
-    /// A vector of alphabet symbols (0 to m-1) representing the encoding
-    pub fn encode(&self, token_id: u32) -> Result<Vec<u8>, String> {
-        let token_idx = token_id as usize;
-        if token_idx >= self.encoding_map.len() {
-        if !self.valid_tokens.contains(&token_id) {
-            return Err(format!("Token ID {} not found in encoding map", token_id));
-        }
-        
-            return Err(format!("Token ID {} is out of range (max: {})", token_id, self.encoding_map.len() - 1));
-        }
-        
-        Ok(self.encoding_map[token_idx].clone())
-    }
-
-    /// Decode a sequence of alphabet symbols into a token ID
-    ///
-    /// # Arguments
-    /// * `alphabet_seq` - Sequence of alphabet symbols (each in range 0 to m-1)
-    ///
-    /// # Returns
-    /// The decoded token ID
-    pub fn decode(&self, alphabet_seq: &[u8]) -> Result<u32, String> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| "Huffman tree not initialized".to_string())?;
-
-        let mut current = root.as_ref();
-
-        for &symbol in alphabet_seq {
-            if symbol >= self.m {
-                return Err(format!(
-                    "Invalid alphabet symbol {} (must be < {})",
-                    symbol, self.m
-                ));
-            }
-
-            current = current.children[symbol as usize]
-                .as_ref()
-                .ok_or_else(|| format!("Invalid encoding: no child for symbol {}", symbol))?
-                .as_ref();
-        }
-
-        if !current.is_leaf() {
-            return Err("Invalid encoding: path does not lead to a leaf".to_string());
-        }
-
-        current
-            .codeword
-            .ok_or_else(|| "Reached leaf with no token ID".to_string())
-    }
-
-    /// Get the alphabet size
-    pub fn alphabet_size(&self) -> u8 {
-        self.m
-    }
-
     /// Get the encoding map (for debugging/inspection)
     pub fn get_encoding_map(&self) -> &[Vec<u8>] {
         &self.encoding_map
     }
 
-    /// Calculate the weighted average code length using probabilities from the tree
-    /// 
-    /// This calculates the expected code length: sum(p_i * length_i) for all tokens,
-    /// using the probabilities stored in the tree's leaf nodes.
-    /// 
-    /// # Returns
-    /// The weighted average code length in bits/symbols
-    pub fn average_code_length(&self) -> f64 {
-        if self.root.is_none() {
-            return 0.0;
-        }
-        
-        let mut weighted_sum = 0.0;
-        
-        // Traverse the tree to find all leaf nodes and calculate weighted sum
-        let mut stack = vec![(self.root.as_ref().unwrap().as_ref(), 0usize)];
-        
-        while let Some((node, depth)) = stack.pop() {
-            if node.is_leaf() {
-                if let Some(token_id) = node.codeword {
-                    // Skip dummy nodes (u32::MAX)
-                    if token_id != u32::MAX {
-                        let code_length = self.encoding_map[token_id as usize].len();
-                        weighted_sum += node.probability * code_length as f64;
-                    }
-                }
-            } else {
-                // Push children onto stack
-                for child_opt in &node.children {
-                    if let Some(child) = child_opt {
-                        stack.push((child.as_ref(), depth + 1));
-                    }
-                }
-            }
-        }
-        
-        weighted_sum
-    }
-
     /// Calculate the weighted average code length using a probability distribution
     /// 
     /// This calculates the expected code length: sum(p_i * length_i) for all tokens
+    /// Token IDs are assumed to be 0..(num_tokens-1)
     /// 
     /// # Arguments
-    /// * `token_ids` - Slice of token IDs
+    /// * `num_tokens` - Number of tokens
     /// * `pmf` - Probability mass function for each token (must sum to ~1.0)
     /// 
     /// # Returns
     /// The weighted average code length in bits/symbols
-    pub fn weighted_average_code_length(&self, token_ids: &[u32], pmf: &[f64]) -> Result<f64, String> {
-        if token_ids.len() != pmf.len() {
-            return Err("Token IDs and PMF must have the same length".to_string());
+    pub fn weighted_average_code_length(&self, num_tokens: usize, pmf: &[f64]) -> Result<f64, String> {
+        if num_tokens != pmf.len() {
+            return Err("Number of tokens and PMF must have the same length".to_string());
         }
         
         let sum: f64 = pmf.iter().sum();
@@ -276,7 +345,7 @@ impl HuffmanGenerator {
         }
         
         let mut weighted_sum = 0.0;
-        for (&token_id, &probability) in token_ids.iter().zip(pmf.iter()) {
+        for (token_id, &probability) in (0..num_tokens as u32).zip(pmf.iter()) {
             if !self.valid_tokens.contains(&token_id) {
                 return Err(format!("Token ID {} not found in tree", token_id));
             }
@@ -524,71 +593,5 @@ impl HuffmanGenerator {
 
         // Decode all tokens from the bit stream
         self.decode_bulk(&bits)
-    }
-
-    /// Encode multiple tokens into a sequence of alphabet symbols
-    ///
-    /// # Arguments
-    /// * `token_ids` - Slice of token IDs to encode
-    ///
-    /// # Returns
-    /// A vector of alphabet symbols representing all encoded tokens
-    pub fn encode_bulk(&self, token_ids: &[u32]) -> Result<Vec<u8>, String> {
-        let mut result = Vec::new();
-        for &token_id in token_ids {
-            let encoded = self.encode(token_id)?;
-            result.extend(encoded);
-        }
-        Ok(result)
-    }
-
-    /// Decode a sequence of alphabet symbols into multiple token IDs
-    ///
-    /// This decodes tokens sequentially from the symbol stream until all symbols are consumed.
-    ///
-    /// # Arguments
-    /// * `alphabet_seq` - Sequence of alphabet symbols (each in range 0 to m-1)
-    ///
-    /// # Returns
-    /// Vector of decoded token IDs
-    pub fn decode_bulk(&self, alphabet_seq: &[u8]) -> Result<Vec<u32>, String> {
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| "Huffman tree not initialized".to_string())?;
-
-        let mut result = Vec::new();
-        let mut current = root.as_ref();
-        
-        for &symbol in alphabet_seq {
-            if symbol >= self.m {
-                return Err(format!(
-                    "Invalid alphabet symbol {} (must be < {})",
-                    symbol, self.m
-                ));
-            }
-
-            current = current.children[symbol as usize]
-                .as_ref()
-                .ok_or_else(|| format!("Invalid encoding: no child for symbol {}", symbol))?
-                .as_ref();
-
-            // Check if we've reached a leaf (completed a token)
-            if current.is_leaf() {
-                let token_id = current
-                    .codeword
-                    .ok_or_else(|| "Reached leaf with no token ID".to_string())?;
-                result.push(token_id);
-                // Reset to root for next token
-                current = root.as_ref();
-            }
-        }
-
-        // Ensure we ended at the root (all tokens were complete)
-        if !current.is_leaf() && current as *const _ != root.as_ref() as *const _ {
-            return Err("Incomplete token at end of sequence".to_string());
-        }
-
-        Ok(result)
     }
 }

@@ -9,6 +9,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::huffman::generator::HuffmanGenerator;
+use crate::token_compressor::TokenCompressor;
 
 /// Request body for the /chat endpoint
 #[derive(Debug, Deserialize, Serialize)]

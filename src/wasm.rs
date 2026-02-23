@@ -1,4 +1,5 @@
 use crate::huffman::HuffmanGenerator;
+use crate::token_compressor::TokenCompressor;
 use once_cell::sync::Lazy;
 use wasm_bindgen::prelude::*;
 

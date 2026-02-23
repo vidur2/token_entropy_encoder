@@ -5,8 +5,8 @@ fn main() {
     let target = env::var("TARGET").unwrap_or_default();
     if target.contains("wasm32") {
         // For WASM, just create a dummy vocab_size.rs
-        let dest = "src/vocab_size.rs";
-        fs::write(dest, "pub const VOCAB_SIZE: usize = 0;\n").unwrap();
+        // let dest = "src/vocab_size.rs";
+        // fs::write(dest, "pub const VOCAB_SIZE: usize = 0;\n").unwrap();
         return;
     }
 
