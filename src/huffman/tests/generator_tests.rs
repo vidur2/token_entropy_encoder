@@ -78,10 +78,10 @@ mod tests {
     fn test_decode_invalid_symbol() {
         let num_tokens = 2;
         let pmf = [0.6, 0.4];
-        let m = 2u8;
+        let m = 3u8; // Ternary alphabet (symbols 0, 1, 2)
 
         let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
-        let result = huffman.decode(&[2]); // Invalid symbol for binary
+        let result = huffman.decode(&[3]); // Invalid symbol (3 is >= m)
         assert!(result.is_err());
     }
 
@@ -89,7 +89,7 @@ mod tests {
     fn test_decode_invalid_path() {
         let num_tokens = 3;
         let pmf = [0.5, 0.3, 0.2];
-        let m = 2u8;
+        let m = 3u8; // Ternary alphabet (symbols 0, 1, 2)
 
         let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
 
@@ -213,13 +213,10 @@ mod tests {
         for token_id in test_token_ids {
             match huffman.encode(token_id) {
                 Ok(encoded) => {
-                    println!("Token ID {} encoded to {} symbols: {:?}", token_id, encoded.len(), encoded);
+                    println!("Token ID {} encoded to {} bytes: {:?}", token_id, encoded.len(), encoded);
                     
-                    // Verify all symbols are valid (< m)
-                    for &symbol in &encoded {
-                        assert!(symbol < huffman.alphabet_size(), 
-                            "Invalid symbol {} (must be < {})", symbol, huffman.alphabet_size());
-                    }
+                    // Note: For m=2, encode() returns packed format with header,
+                    // not raw alphabet symbols, so we skip symbol validation
                     
                     // Test decoding
                     match huffman.decode(&encoded) {
@@ -256,11 +253,11 @@ mod tests {
                 .expect(&format!("Failed to pack encode token ID {}", token_id));
             
             println!("Token ID {} packed to {} bytes", token_id, packed.len());
-            assert!(packed.len() >= 4, "Packed data should have at least 4-byte header");
+            assert!(packed.len() >= 1, "Packed data should have at least 1-byte header");
             
-            // Extract bit count from header
-            let bit_count = u32::from_be_bytes([packed[0], packed[1], packed[2], packed[3]]);
-            println!("  Bit count: {}", bit_count);
+            // Extract valid bits in last byte from header
+            let last_byte_bits = packed[0];
+            println!("  Last byte bits: {}", last_byte_bits);
             
             // Test packed decoding
             let decoded = huffman.decode_packed(&packed)

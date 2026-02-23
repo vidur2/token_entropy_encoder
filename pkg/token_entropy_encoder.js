@@ -23,12 +23,13 @@ function average_code_length() {
 exports.average_code_length = average_code_length;
 
 /**
- * Decode a buffer of packed bytes into a token ID
+ * Decode a buffer of bytes into a token ID
  *
- * For m=2 (binary), expects format: [4 bytes: bit count] [packed bits]
+ * For m=2 (binary), expects packed format: [1 byte: valid bits in last byte (0-8)] [packed bits]
+ * For other alphabets, expects raw alphabet symbols.
  *
  * # Arguments
- * * `buffer` - A byte array containing packed data
+ * * `buffer` - A byte array containing encoded data
  *
  * # Returns
  * The decoded token ID, or an error message
@@ -47,13 +48,14 @@ function decode(buffer) {
 exports.decode = decode;
 
 /**
- * Decode a buffer of packed bytes into multiple token IDs
+ * Decode a buffer of bytes into multiple token IDs
  *
- * For m=2 (binary), expects format: [4 bytes: bit count] [packed bits]
+ * For m=2 (binary), expects packed format: [1 byte: valid bits in last byte (0-8)] [packed bits]
+ * For other alphabets, expects raw alphabet symbols.
  * Decodes all tokens sequentially from the buffer.
  *
  * # Arguments
- * * `buffer` - A byte array containing packed data
+ * * `buffer` - A byte array containing encoded data
  *
  * # Returns
  * An array of decoded token IDs, or an error message
@@ -74,9 +76,10 @@ function decode_bulk(buffer) {
 exports.decode_bulk = decode_bulk;
 
 /**
- * Encode a token ID into packed bytes
+ * Encode a token ID into bytes
  *
- * For m=2 (binary), returns format: [4 bytes: bit count] [packed bits]
+ * For m=2 (binary), returns packed format: [1 byte: valid bits in last byte (0-8)] [packed bits]
+ * For other alphabets, returns raw alphabet symbols.
  *
  * # Arguments
  * * `token_id` - The token ID to encode
@@ -100,7 +103,7 @@ exports.encode = encode;
 /**
  * Encode multiple tokens into packed bytes
  *
- * For m=2 (binary), returns format: [4 bytes: bit count] [packed bits for all tokens]
+ * For m=2 (binary), returns format: [1 byte: valid bits in last byte (0-8)] [packed bits for all tokens]
  *
  * # Arguments
  * * `tokens` - Array of token IDs to encode

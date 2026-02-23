@@ -19,33 +19,27 @@ pub fn init() {
     Lazy::force(&HUFFMAN);
 }
 
-/// Decode a buffer of packed bytes into a token ID
+/// Decode a buffer of bytes into a token ID
 ///
-/// For m=2 (binary), expects format: [4 bytes: bit count] [packed bits]
+/// For m=2 (binary), expects packed format: [1 byte: valid bits in last byte (0-8)] [packed bits]
+/// For other alphabets, expects raw alphabet symbols.
 ///
 /// # Arguments
-/// * `buffer` - A byte array containing packed data
+/// * `buffer` - A byte array containing encoded data
 ///
 /// # Returns
 /// The decoded token ID, or an error message
 #[wasm_bindgen]
 pub fn decode(buffer: &[u8]) -> Result<u32, JsValue> {
-    if HUFFMAN.alphabet_size() == 2 {
-        // Use packed decoding for binary alphabet
-        HUFFMAN
-            .decode_packed(buffer)
-            .map_err(|e| JsValue::from_str(&format!("Decode error: {}", e)))
-    } else {
-        // Use regular decoding for non-binary alphabets
-        HUFFMAN
-            .decode(buffer)
-            .map_err(|e| JsValue::from_str(&format!("Decode error: {}", e)))
-    }
+    HUFFMAN
+        .decode(buffer)
+        .map_err(|e| JsValue::from_str(&format!("Decode error: {}", e)))
 }
 
-/// Encode a token ID into packed bytes
+/// Encode a token ID into bytes
 ///
-/// For m=2 (binary), returns format: [4 bytes: bit count] [packed bits]
+/// For m=2 (binary), returns packed format: [1 byte: valid bits in last byte (0-8)] [packed bits]
+/// For other alphabets, returns raw alphabet symbols.
 ///
 /// # Arguments
 /// * `token_id` - The token ID to encode
@@ -54,17 +48,9 @@ pub fn decode(buffer: &[u8]) -> Result<u32, JsValue> {
 /// A byte array (packed if m=2, or raw symbols otherwise)
 #[wasm_bindgen]
 pub fn encode(token_id: u32) -> Result<Vec<u8>, JsValue> {
-    if HUFFMAN.alphabet_size() == 2 {
-        // Use packed encoding for binary alphabet
-        HUFFMAN
-            .encode_packed(token_id)
-            .map_err(|e| JsValue::from_str(&format!("Encode error: {}", e)))
-    } else {
-        // Use regular encoding for non-binary alphabets
-        HUFFMAN
-            .encode(token_id)
-            .map_err(|e| JsValue::from_str(&format!("Encode error: {}", e)))
-    }
+    HUFFMAN
+        .encode(token_id)
+        .map_err(|e| JsValue::from_str(&format!("Encode error: {}", e)))
 }
 
 /// Get the alphabet size of the Huffman encoder
@@ -89,7 +75,7 @@ pub fn average_code_length() -> f64 {
 
 /// Encode multiple tokens into packed bytes
 ///
-/// For m=2 (binary), returns format: [4 bytes: bit count] [packed bits for all tokens]
+/// For m=2 (binary), returns format: [1 byte: valid bits in last byte (0-8)] [packed bits for all tokens]
 ///
 /// # Arguments
 /// * `tokens` - Array of token IDs to encode
@@ -110,42 +96,27 @@ pub fn encode_bulk(tokens: Box<[JsValue]>) -> Result<Vec<u8>, JsValue> {
     
     let token_ids = token_ids?;
     
-    if HUFFMAN.alphabet_size() == 2 {
-        // Use packed encoding for binary alphabet
-        HUFFMAN
-            .encode_bulk_packed(&token_ids)
-            .map_err(|e| JsValue::from_str(&format!("Bulk encode error: {}", e)))
-    } else {
-        // Use regular encoding for non-binary alphabets
-        HUFFMAN
-            .encode_bulk(&token_ids)
-            .map_err(|e| JsValue::from_str(&format!("Bulk encode error: {}", e)))
-    }
+    HUFFMAN
+        .encode_bulk(&token_ids)
+        .map_err(|e| JsValue::from_str(&format!("Bulk encode error: {}", e)))
 }
 
-/// Decode a buffer of packed bytes into multiple token IDs
+/// Decode a buffer of bytes into multiple token IDs
 ///
-/// For m=2 (binary), expects format: [4 bytes: bit count] [packed bits]
+/// For m=2 (binary), expects packed format: [1 byte: valid bits in last byte (0-8)] [packed bits]
+/// For other alphabets, expects raw alphabet symbols.
 /// Decodes all tokens sequentially from the buffer.
 ///
 /// # Arguments
-/// * `buffer` - A byte array containing packed data
+/// * `buffer` - A byte array containing encoded data
 ///
 /// # Returns
 /// An array of decoded token IDs, or an error message
 #[wasm_bindgen]
 pub fn decode_bulk(buffer: &[u8]) -> Result<Box<[JsValue]>, JsValue> {
-    let token_ids = if HUFFMAN.alphabet_size() == 2 {
-        // Use packed decoding for binary alphabet
-        HUFFMAN
-            .decode_bulk_packed(buffer)
-            .map_err(|e| JsValue::from_str(&format!("Bulk decode error: {}", e)))?
-    } else {
-        // Use regular decoding for non-binary alphabets
-        HUFFMAN
-            .decode_bulk(buffer)
-            .map_err(|e| JsValue::from_str(&format!("Bulk decode error: {}", e)))?
-    };
+    let token_ids = HUFFMAN
+        .decode_bulk(buffer)
+        .map_err(|e| JsValue::from_str(&format!("Bulk decode error: {}", e)))?;
     
     // Convert Vec<u32> to Box<[JsValue]>
     let js_values: Vec<JsValue> = token_ids.into_iter().map(|id| JsValue::from(id)).collect();
