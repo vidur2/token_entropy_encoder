@@ -4,47 +4,52 @@ const { decode, encode, alphabet_size, is_loaded, average_code_length } = requir
 
 /**
  * Unpack the header and data from a packed encoding
- * Format: [4 bytes: bit count (big-endian)] [packed bits]
+ * Format: [1 byte: valid bits in last byte (0-8)] [packed bits]
  * 
  * @param {Uint8Array} packed - The packed encoding buffer
  * @returns {Object} Object with bitCount, headerBytes, dataBytes, and bits array
  */
 function unpackEncoding(packed) {
-    if (packed.length < 4) {
-        throw new Error('Packed data too short: need at least 4 bytes for header');
+    if (packed.length < 1) {
+        throw new Error('Packed data too short: need at least 1 byte for header');
     }
     
-    // Extract bit count from first 4 bytes (big-endian)
-    const bitCount = (packed[0] << 24) | (packed[1] << 16) | (packed[2] << 8) | packed[3];
+    // Extract valid bits in last byte from first byte
+    const lastByteBits = packed[0];
     
-    // Header is first 4 bytes
-    const headerBytes = packed.slice(0, 4);
+    if (lastByteBits > 8) {
+        throw new Error('Invalid header: valid bits must be 0-8');
+    }
+    
+    // Header is first byte
+    const headerBytes = packed.slice(0, 1);
     
     // Data is everything after the header
-    const dataBytes = packed.slice(4);
+    const dataBytes = packed.slice(1);
+    
+    // Calculate total bit count
+    const bitCount = lastByteBits === 8 ? dataBytes.length * 8 : (dataBytes.length - 1) * 8 + lastByteBits;
     
     // Unpack bits from data bytes (MSB first)
     const bits = [];
     for (let i = 0; i < dataBytes.length; i++) {
         const byte = dataBytes[i];
-        for (let j = 7; j >= 0; j--) {
-            bits.push((byte >> j) & 1);
-            if (bits.length === bitCount) {
-                break;
-            }
-        }
-        if (bits.length === bitCount) {
-            break;
+        const isLastByte = i === dataBytes.length - 1;
+        const bitsInThisByte = isLastByte ? lastByteBits : 8;
+        
+        for (let j = 8 - bitsInThisByte; j < 8; j++) {
+            bits.push((byte >> (7 - j)) & 1);
         }
     }
     
     return {
         bitCount,
+        lastByteBits,
         headerBytes: Array.from(headerBytes),
         dataBytes: Array.from(dataBytes),
         bits,
         totalBytes: packed.length,
-        headerOverhead: 4,
+        headerOverhead: 1,
         dataSize: dataBytes.length
     };
 }
@@ -118,7 +123,12 @@ for (const tokenId of testTokenIds) {
         const encoded = encode(tokenId);
         const decoded = decode(encoded);
         const match = tokenId === decoded;
-        const bits = (encoded[0] << 24) | (encoded[1] << 16) | (encoded[2] << 8) | encoded[3];
+        
+        // Calculate bits from new format
+        const lastByteBits = encoded[0];
+        const dataBytes = encoded.length - 1;
+        const bits = lastByteBits === 8 ? dataBytes * 8 : (dataBytes - 1) * 8 + lastByteBits;
+        
         console.log(`Token ID ${tokenId}: ${bits} bits -> ${encoded.length} bytes -> decoded: ${decoded} ${match ? '✓' : '✗'}`);
     } catch (error) {
         console.log(`Token ID ${tokenId}: Error: ${error.message}`);
@@ -136,7 +146,8 @@ try {
     
     console.log('Token ID:', tokenId);
     console.log('Total encoded size:', unpacked.totalBytes, 'bytes');
-    console.log('Header (4 bytes):', unpacked.headerBytes, '-> bit count:', unpacked.bitCount);
+    console.log('Header (1 byte):', unpacked.headerBytes, '-> last byte bits:', unpacked.lastByteBits);
+    console.log('Total bit count:', unpacked.bitCount);
     console.log('Data (' + unpacked.dataSize + ' bytes):', unpacked.dataBytes);
     console.log('Unpacked bits:', unpacked.bits.join(''));
     console.log('Header overhead:', unpacked.headerOverhead, 'bytes');
@@ -152,12 +163,12 @@ try {
 console.log('Example 6: Analyzing compression efficiency');
 console.log('--------------------------------------------');
 const avgCodeLength = average_code_length();
-const headerBits = 32; // 4 bytes
+const headerBits = 8; // 1 byte
 const rawU32Bits = 32; // 4 bytes per token
 
 console.log('Average Huffman code length:', avgCodeLength.toFixed(2), 'bits');
 console.log('Average packed size (no header):', (avgCodeLength / 8).toFixed(2), 'bytes');
-console.log('Average packed size (with header):', ((avgCodeLength / 8) + 4).toFixed(2), 'bytes');
+console.log('Average packed size (with header):', ((avgCodeLength / 8) + 1).toFixed(2), 'bytes');
 console.log('Raw u32 encoding:', 4, 'bytes per token');
 console.log();
 console.log('Compression analysis:');

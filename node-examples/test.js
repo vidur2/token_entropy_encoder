@@ -98,7 +98,7 @@ testGroup('Basic Encoding/Decoding', () => {
             // Encode the token ID (returns packed bytes for m=2)
             const packed = encode(tokenId);
             assert(packed instanceof Uint8Array, 'Encode should return Uint8Array');
-            assert(packed.length >= 4, 'Packed data should have at least 4-byte header');
+            assert(packed.length >= 1, 'Packed data should have at least 1-byte header');
 
             // Decode it back
             const decoded = decode(packed);
@@ -112,14 +112,17 @@ testGroup('Packed Format Structure', () => {
         const tokenId = 100;
         const packed = encode(tokenId);
         
-        // First 4 bytes are the bit count (big-endian u32)
-        const bitCount = (packed[0] << 24) | (packed[1] << 16) | (packed[2] << 8) | packed[3];
+        // First byte is the valid bits in last byte (0-8)
+        const lastByteBits = packed[0];
         
-        // Bit count should be positive and reasonable
-        assert(bitCount > 0, 'Bit count should be positive');
-        assert(bitCount < 1000, 'Bit count should be reasonable (< 1000 for typical tokens)');
+        // Valid bits should be 0-8
+        assert(lastByteBits >= 0 && lastByteBits <= 8, 'Last byte bits should be 0-8');
         
-        console.log(`    Token ID ${tokenId} has ${bitCount} bits, packed into ${packed.length} bytes`);
+        // Calculate total bits
+        const dataBytes = packed.length - 1;
+        const totalBits = lastByteBits === 8 ? dataBytes * 8 : (dataBytes - 1) * 8 + lastByteBits;
+        
+        console.log(`    Token ID ${tokenId} has ${totalBits} bits, packed into ${packed.length} bytes`);
     });
 
     test('different token IDs have different bit lengths', () => {
@@ -129,8 +132,15 @@ testGroup('Packed Format Structure', () => {
         const packed1 = encode(tokenId1);
         const packed2 = encode(tokenId2);
         
-        const bits1 = (packed1[0] << 24) | (packed1[1] << 16) | (packed1[2] << 8) | packed1[3];
-        const bits2 = (packed2[0] << 24) | (packed2[1] << 16) | (packed2[2] << 8) | packed2[3];
+        // Calculate bits from new format
+        const calcBits = (packed) => {
+            const lastByteBits = packed[0];
+            const dataBytes = packed.length - 1;
+            return lastByteBits === 8 ? dataBytes * 8 : (dataBytes - 1) * 8 + lastByteBits;
+        };
+        
+        const bits1 = calcBits(packed1);
+        const bits2 = calcBits(packed2);
         
         console.log(`    Token ID ${tokenId1}: ${bits1} bits, Token ID ${tokenId2}: ${bits2} bits`);
         // Note: Huffman encoding assigns shorter codes to more frequent tokens
@@ -143,12 +153,14 @@ testGroup('Bit Packing Efficiency', () => {
         const tokenId = 100;
         const packed = encode(tokenId);
         
-        // Extract bit count
-        const bitCount = (packed[0] << 24) | (packed[1] << 16) | (packed[2] << 8) | packed[3];
+        // Calculate bit count from new format
+        const lastByteBits = packed[0];
+        const dataBytes = packed.length - 1;
+        const bitCount = lastByteBits === 8 ? dataBytes * 8 : (dataBytes - 1) * 8 + lastByteBits;
         
         // Without packing, we'd need 1 byte per bit
         const unpackedSize = bitCount;
-        const packedSize = packed.length - 4; // Exclude header
+        const packedSize = packed.length - 1; // Exclude header
         
         const compressionRatio = unpackedSize / Math.max(packedSize, 1);
         console.log(`    Token ID ${tokenId}: ${bitCount} bits → ${packedSize} packed bytes (${compressionRatio.toFixed(1)}x compression)`);
@@ -193,9 +205,9 @@ testGroup('Error Handling', () => {
 
     test('decode buffer with invalid header throws error', () => {
         assertThrows(() => {
-            // Only 3 bytes - not enough for header
-            decode(new Uint8Array([0, 0, 0]));
-        }, 'Should throw error for incomplete header');
+            // Invalid header value (> 8)
+            decode(new Uint8Array([9, 0, 0]));
+        }, 'Should throw error for invalid header');
     });
 
     test('encode out-of-range token ID throws error', () => {
