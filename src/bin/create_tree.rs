@@ -1,7 +1,5 @@
 use token_entropy_encoder::{
-    huffman::HuffmanGenerator,
-    vocab::load_pmf_from_json,
-    vocab_size::VOCAB_SIZE,
+    huffman::HuffmanGenerator, vocab::load_pmf_from_json, vocab_size::VOCAB_SIZE,
 };
 
 use dotenvy::dotenv;
@@ -15,7 +13,11 @@ fn main() {
     let pmf = load_pmf_from_json(json_path.as_str()).unwrap();
 
     if pmf.len() != VOCAB_SIZE {
-        panic!("pmf length ({}) must match VOCAB_SIZE ({})", pmf.len(), VOCAB_SIZE);
+        panic!(
+            "pmf length ({}) must match VOCAB_SIZE ({})",
+            pmf.len(),
+            VOCAB_SIZE
+        );
     }
 
     let json = HuffmanGenerator::new(VOCAB_SIZE, &pmf, 2)
@@ -23,6 +25,9 @@ fn main() {
         .to_json()
         .unwrap();
     fs::write("enc_dec.json", json.as_str()).unwrap();
-    
-    println!("Successfully created enc_dec.json with {} token IDs", VOCAB_SIZE);
+
+    println!(
+        "Successfully created enc_dec.json with {} token IDs",
+        VOCAB_SIZE
+    );
 }

@@ -52,25 +52,41 @@ npm run client
 This will:
 1. Check if the server is running
 2. Connect to the WebSocket server at `ws://127.0.0.1:3000/chat`
-3. Send a request with token IDs: `{ "token_ids": [100, 200, 300] }`
-4. Receive encoded chunks from the server (with simulated network delays)
-5. Accumulate all chunks
-6. Decode all chunks back to token IDs
-6. Decode the complete message using the WASM module
+3. Send a request with token IDs: `{ "token_ids": [0, 1, 2, 3, 10, 50, 100, 200, 300, 400, 500] }`
+4. Receive encoded packets from the server (sent when buffer fills or timeout occurs)
+5. Decode each packet immediately using bulk decoding
+6. Display all decoded tokens when the connection closes
+
+### 3. Node.js WebSocket Server (`server.js`)
+
+Alternative to the Rust server, implemented in Node.js:
+
+```bash
+node server.js
+# or
+npm run server
+```
+
+This provides the same functionality as the Rust server but is easier to modify for testing.
 
 ## How It Works
 
 The WebSocket client demonstrates the full flow:
-1. Client sends token IDs to the server: `{ "token_ids": [100, 200, 300] }`
-2. Server encodes the token IDs using Huffman encoding
-3. Server streams the encoded data back in chunks (simulating network conditions)
-4. Client accumulates all binary chunks
-5. Client decodes the complete buffer using the WASM module back to token IDs
+1. Client sends token IDs to the server: `{ "token_ids": [0, 1, 2, 3, ...] }`
+2. Server simulates streaming the token IDs with network delays
+3. Server buffers tokens and flushes them when:
+   - The buffer reaches MAX_WINDOW_SIZE_TOKENS (e.g., 255 tokens), OR
+   - A timeout expires (e.g., 100ms with no new tokens)
+4. On flush, server encodes all buffered tokens using bulk Huffman encoding
+5. Server sends the complete encoded packet as a binary WebSocket message
+6. Client decodes each packet immediately using `decode_bulk()`
+7. When the stream ends, the server closes the connection
 
 **API Changes:** The system now uses u32 token IDs throughout instead of string tokens. This provides:
 - More efficient encoding/decoding (no string parsing)
 - Direct compatibility with tokenizer outputs
 - Fixed-size array-based lookups (O(1) instead of HashMap)
+- Bulk encoding/decoding for better performance
 
 ## Directory Structure
 

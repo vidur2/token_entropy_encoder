@@ -1,11 +1,11 @@
 use std::pin::Pin;
 
+use async_stream::stream;
 use axum::{Router, routing::get};
 use futures::Stream;
 use once_cell::sync::Lazy;
 use token_entropy_encoder::{huffman::HuffmanGenerator, server::HuffmanServer};
-use async_stream::stream;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 // Load HuffmanGenerator once from the JSON file
 static HUFFMAN: Lazy<HuffmanGenerator> = Lazy::new(|| {
@@ -16,15 +16,15 @@ static HUFFMAN: Lazy<HuffmanGenerator> = Lazy::new(|| {
 
 pub struct HuffmanServerImpl;
 
-impl<'a> HuffmanServer<'a> for HuffmanServerImpl {
+impl<'a> HuffmanServer<'a, 10u8, 30u64> for HuffmanServerImpl {
     fn simulate_network_chunks(
-        encoded: Vec<u8>,
+        encoded: Vec<u32>,
         chunk_size: usize,
         tick_ms: u64,
-    ) -> Pin<Box<dyn Stream<Item = Vec<u8>> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = u32> + Send>> {
         Box::pin(stream! {
-            for chunk in encoded.chunks(chunk_size) {
-                yield chunk.to_vec();
+            for chunk in encoded {
+                yield chunk;
                 sleep(Duration::from_millis(tick_ms)).await;
             }
         })

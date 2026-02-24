@@ -6,7 +6,6 @@ struct PmfData {
     pmf: Vec<f64>,
 }
 
-
 pub fn get_vocab(tokenizer_json_path: String) -> Vec<String> {
     // Read the JSON file
     let file_content = fs::read_to_string(tokenizer_json_path).unwrap();

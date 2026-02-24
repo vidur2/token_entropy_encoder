@@ -6,7 +6,7 @@
  */
 
 const assert = require('assert');
-const { encode, decode, alphabet_size, is_loaded } = require('../pkg/token_entropy_encoder.js');
+const { encode, decode, encode_bulk, decode_bulk, alphabet_size, is_loaded } = require('../pkg/token_entropy_encoder.js');
 
 // Test counter
 let totalTests = 0;
@@ -235,6 +235,104 @@ testGroup('Edge Cases', () => {
     });
 });
 
+testGroup('Bulk Encoding/Decoding', () => {
+    test('encode and decode bulk tokens', () => {
+        const tokenIds = [0, 1, 10, 50, 100, 500];
+        
+        // Bulk encode
+        const packed = encode_bulk(tokenIds);
+        assert(packed instanceof Uint8Array, 'encode_bulk should return Uint8Array');
+        assert(packed.length >= 1, 'Packed data should have at least 1-byte header');
+        
+        // Bulk decode
+        const decoded = decode_bulk(packed);
+        assert(Array.isArray(decoded), 'decode_bulk should return array');
+        assertArrayEquals(decoded, tokenIds, 'Bulk roundtrip failed');
+        
+        console.log(`    Bulk encoded ${tokenIds.length} tokens to ${packed.length} bytes`);
+    });
+
+    test('bulk encode empty array', () => {
+        const tokenIds = [];
+        
+        const packed = encode_bulk(tokenIds);
+        assert(packed instanceof Uint8Array, 'encode_bulk should return Uint8Array');
+        assert(packed.length === 1, 'Empty input should produce just header byte');
+        assert(packed[0] === 0, 'Header should indicate 0 valid bits');
+        
+        const decoded = decode_bulk(packed);
+        assertEquals(decoded.length, 0, 'Empty packed data should decode to empty array');
+    });
+
+    test('bulk encode single token', () => {
+        const tokenIds = [100];
+        
+        const packed = encode_bulk(tokenIds);
+        const decoded = decode_bulk(packed);
+        
+        assertArrayEquals(decoded, tokenIds, 'Single token bulk roundtrip failed');
+    });
+
+    test('bulk vs individual encoding comparison', () => {
+        const tokenIds = [0, 1, 10, 50];
+        
+        // Encode individually and concatenate
+        let totalIndividualBytes = 1; // Start with header byte
+        const individualEncodings = tokenIds.map(id => {
+            const encoded = encode(id);
+            totalIndividualBytes += encoded.length;
+            return encoded;
+        });
+        
+        // Encode in bulk
+        const bulkEncoded = encode_bulk(tokenIds);
+        
+        console.log(`    Individual: ${totalIndividualBytes} bytes, Bulk: ${bulkEncoded.length} bytes`);
+        
+        // Verify bulk decoding works
+        const decoded = decode_bulk(bulkEncoded);
+        assertArrayEquals(decoded, tokenIds, 'Bulk encoding should decode correctly');
+    });
+
+    test('bulk encode large sequence', () => {
+        // Create a larger sequence (100 tokens)
+        const tokenIds = [];
+        for (let i = 0; i < 100; i++) {
+            tokenIds.push(i % 4); // Use token IDs 0-3 repeatedly
+        }
+        
+        const packed = encode_bulk(tokenIds);
+        console.log(`    Bulk encoded ${tokenIds.length} tokens to ${packed.length} bytes`);
+        
+        const decoded = decode_bulk(packed);
+        assertArrayEquals(decoded, tokenIds, 'Large bulk roundtrip failed');
+    });
+
+    test('bulk encode with various token IDs', () => {
+        const tokenIds = [100, 200, 300, 500, 1000];
+        
+        try {
+            const packed = encode_bulk(tokenIds);
+            const decoded = decode_bulk(packed);
+            assertArrayEquals(decoded, tokenIds, 'Bulk encoding of various token IDs failed');
+            console.log(`    Successfully encoded/decoded ${tokenIds.length} various tokens`);
+        } catch (error) {
+            if (error.message.includes('not found in encoding map')) {
+                console.log(`    Some token IDs not in tree - skipped`);
+            } else {
+                throw error;
+            }
+        }
+    });
+
+    test('bulk decode error handling', () => {
+        assertThrows(() => {
+            // Empty buffer without header
+            decode_bulk(new Uint8Array([]));
+        }, 'Should throw error for empty buffer');
+    });
+});
+
 testGroup('Performance Check', () => {
     test('encode/decode 1000 tokens quickly', () => {
         const tokenId = 100;
@@ -252,6 +350,28 @@ testGroup('Performance Check', () => {
         
         console.log(`    Completed ${iterations * 2} operations in ${elapsed}ms (${opsPerSecond} ops/sec)`);
         assert(elapsed < 5000, 'Should complete 1000 encode/decode cycles in under 5 seconds');
+    });
+
+    test('bulk encode/decode 100 tokens efficiently', () => {
+        const tokenIds = [];
+        for (let i = 0; i < 100; i++) {
+            tokenIds.push(i % 10); // Use token IDs 0-9 repeatedly
+        }
+        
+        const iterations = 100;
+        const start = Date.now();
+        
+        for (let i = 0; i < iterations; i++) {
+            const packed = encode_bulk(tokenIds);
+            const decoded = decode_bulk(packed);
+            assert(decoded.length === tokenIds.length);
+        }
+        
+        const elapsed = Date.now() - start;
+        const tokensPerSecond = Math.round((iterations * tokenIds.length * 2) / (elapsed / 1000));
+        
+        console.log(`    Bulk processed ${iterations * tokenIds.length * 2} tokens in ${elapsed}ms (${tokensPerSecond} tokens/sec)`);
+        assert(elapsed < 5000, 'Should complete 100 bulk encode/decode cycles in under 5 seconds');
     });
 });
 

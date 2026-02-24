@@ -1,12 +1,11 @@
 use super::priority_node::PriorityNode;
 use super::trie_node::TrieNode;
+use crate::token_compressor::TokenCompressor;
 use serde::{Deserialize, Serialize};
 use std::collections::{BinaryHeap, HashSet};
-use crate::token_compressor::TokenCompressor;
 
 #[cfg(not(target_arch = "wasm32"))]
 // use crate::vocab_size::VOCAB_SIZE;
-
 #[cfg(target_arch = "wasm32")]
 const VOCAB_SIZE: usize = 128256;
 
@@ -98,22 +97,22 @@ impl TokenCompressor for HuffmanGenerator {
     }
 
     /// Calculate the weighted average code length using probabilities from the tree
-    /// 
+    ///
     /// This calculates the expected code length: sum(p_i * length_i) for all tokens,
     /// using the probabilities stored in the tree's leaf nodes.
-    /// 
+    ///
     /// # Returns
     /// The weighted average code length in bits/symbols
     fn average_code_length(&self) -> f64 {
         if self.root.is_none() {
             return 0.0;
         }
-        
+
         let mut weighted_sum = 0.0;
-        
+
         // Traverse the tree to find all leaf nodes and calculate weighted sum
         let mut stack = vec![(self.root.as_ref().unwrap().as_ref(), 0usize)];
-        
+
         while let Some((node, depth)) = stack.pop() {
             if node.is_leaf() {
                 if let Some(token_id) = node.codeword {
@@ -132,7 +131,7 @@ impl TokenCompressor for HuffmanGenerator {
                 }
             }
         }
-        
+
         weighted_sum
     }
 }
@@ -149,7 +148,7 @@ impl HuffmanGenerator {
         if !self.valid_tokens.contains(&token_id) {
             return Err(format!("Token ID {} not found in encoding map", token_id));
         }
-        
+
         Ok(self.encoding_map[token_id as usize].clone())
     }
 
@@ -224,7 +223,7 @@ impl HuffmanGenerator {
 
         let mut result = Vec::new();
         let mut current = root.as_ref();
-        
+
         for &symbol in alphabet_seq {
             if symbol >= self.m {
                 return Err(format!(
@@ -270,15 +269,11 @@ impl HuffmanGenerator {
     ///
     /// # Returns
     /// A new HuffmanGenerator with the constructed trie and encoding map
-    pub fn new(
-        num_tokens: usize,
-        pmf: &[f64],
-        m: u8,
-    ) -> Result<Self, String> {
+    pub fn new(num_tokens: usize, pmf: &[f64], m: u8) -> Result<Self, String> {
         if num_tokens == 0 {
             return Err("Cannot create Huffman tree with zero tokens".to_string());
         }
-        
+
         if num_tokens != pmf.len() {
             return Err("Number of tokens and PMF must have the same length".to_string());
         }
@@ -310,11 +305,7 @@ impl HuffmanGenerator {
     }
 
     /// Build the m-ary Huffman tree using a priority queue
-    fn build_huffman_tree(
-        num_tokens: usize,
-        pmf: &[f64],
-        m: usize,
-    ) -> Box<TrieNode> {
+    fn build_huffman_tree(num_tokens: usize, pmf: &[f64], m: usize) -> Box<TrieNode> {
         let n = num_tokens;
         let mut heap = BinaryHeap::new();
 
@@ -360,7 +351,12 @@ impl HuffmanGenerator {
     }
 
     /// Build the encoding map (token_id -> alphabet sequence) using explicit iteration
-    fn build_encoding_map(node: &TrieNode, _path: &mut Vec<u8>, map: &mut Vec<Vec<u8>>, valid_tokens: &mut HashSet<u32>) {
+    fn build_encoding_map(
+        node: &TrieNode,
+        _path: &mut Vec<u8>,
+        map: &mut Vec<Vec<u8>>,
+        valid_tokens: &mut HashSet<u32>,
+    ) {
         // Use explicit stack to avoid stack overflow with large trees
         let mut stack: Vec<(&TrieNode, Vec<u8>)> = Vec::new();
         stack.push((node, Vec::new()));
@@ -393,26 +389,30 @@ impl HuffmanGenerator {
     }
 
     /// Calculate the weighted average code length using a probability distribution
-    /// 
+    ///
     /// This calculates the expected code length: sum(p_i * length_i) for all tokens
     /// Token IDs are assumed to be 0..(num_tokens-1)
-    /// 
+    ///
     /// # Arguments
     /// * `num_tokens` - Number of tokens
     /// * `pmf` - Probability mass function for each token (must sum to ~1.0)
-    /// 
+    ///
     /// # Returns
     /// The weighted average code length in bits/symbols
-    pub fn weighted_average_code_length(&self, num_tokens: usize, pmf: &[f64]) -> Result<f64, String> {
+    pub fn weighted_average_code_length(
+        &self,
+        num_tokens: usize,
+        pmf: &[f64],
+    ) -> Result<f64, String> {
         if num_tokens != pmf.len() {
             return Err("Number of tokens and PMF must have the same length".to_string());
         }
-        
+
         let sum: f64 = pmf.iter().sum();
         if (sum - 1.0).abs() > 0.01 {
             return Err(format!("PMF must sum to 1.0, got {}", sum));
         }
-        
+
         let mut weighted_sum = 0.0;
         for (token_id, &probability) in (0..num_tokens as u32).zip(pmf.iter()) {
             if !self.valid_tokens.contains(&token_id) {
@@ -421,7 +421,7 @@ impl HuffmanGenerator {
             let code_length = self.encoding_map[token_id as usize].len();
             weighted_sum += probability * code_length as f64;
         }
-        
+
         Ok(weighted_sum)
     }
 
@@ -500,18 +500,22 @@ impl HuffmanGenerator {
 
         // Get the bit sequence
         let bits = self.encode_raw(token_id)?;
-        
+
         // Handle empty encoding (0 bits)
         if bits.is_empty() {
             return Ok(vec![0]); // Header with 0 = no data bytes
         }
-        
+
         // Calculate how many valid bits are in the last byte (1-8)
-        let last_byte_bits = if bits.len() % 8 == 0 { 8 } else { bits.len() % 8 };
-        
+        let last_byte_bits = if bits.len() % 8 == 0 {
+            8
+        } else {
+            bits.len() % 8
+        };
+
         // Pack: [1 byte: last_byte_bits] [packed bytes]
         let mut packed = vec![last_byte_bits as u8];
-        
+
         // Pack 8 bits into each byte (MSB first)
         for chunk in bits.chunks(8) {
             let mut byte = 0u8;
@@ -522,7 +526,7 @@ impl HuffmanGenerator {
             }
             packed.push(byte);
         }
-        
+
         Ok(packed)
     }
 
@@ -550,23 +554,28 @@ impl HuffmanGenerator {
 
         // Extract valid bits in last byte from first byte
         let last_byte_bits = packed[0] as usize;
-        
+
         // Handle empty encoding (0 bits)
         if last_byte_bits == 0 {
             if packed.len() != 1 {
-                return Err("Invalid packed data: header indicates 0 bits but has data bytes".to_string());
+                return Err(
+                    "Invalid packed data: header indicates 0 bits but has data bytes".to_string(),
+                );
             }
             return self.decode_raw(&[]);
         }
-        
+
         if last_byte_bits > 8 {
-            return Err(format!("Invalid header: last_byte_bits must be 0-8, got {}", last_byte_bits));
+            return Err(format!(
+                "Invalid header: last_byte_bits must be 0-8, got {}",
+                last_byte_bits
+            ));
         }
-        
+
         if packed.len() < 2 {
             return Err("Packed data too short: need at least 2 bytes (header + data)".to_string());
         }
-        
+
         // Calculate total bit count
         let data_bytes = packed.len() - 1;
         let bit_count = if last_byte_bits == 8 {
@@ -574,13 +583,13 @@ impl HuffmanGenerator {
         } else {
             (data_bytes - 1) * 8 + last_byte_bits
         };
-        
+
         // Unpack bits from data bytes
         let mut bits = Vec::with_capacity(bit_count);
         for (idx, &byte) in packed[1..].iter().enumerate() {
             let is_last_byte = idx == data_bytes - 1;
             let bits_in_this_byte = if is_last_byte { last_byte_bits } else { 8 };
-            
+
             for i in (8 - bits_in_this_byte..8).rev() {
                 bits.push((byte >> i) & 1);
             }
@@ -589,8 +598,7 @@ impl HuffmanGenerator {
         if bits.len() != bit_count {
             return Err(format!(
                 "Could not unpack {} bits from {} bytes",
-                bit_count,
-                data_bytes
+                bit_count, data_bytes
             ));
         }
 
@@ -622,18 +630,22 @@ impl HuffmanGenerator {
             let bits = self.encode_raw(token_id)?;
             all_bits.extend(bits);
         }
-        
+
         // Handle empty encoding (0 bits)
         if all_bits.is_empty() {
             return Ok(vec![0]); // Header with 0 = no data bytes
         }
-        
+
         // Calculate how many valid bits are in the last byte (1-8)
-        let last_byte_bits = if all_bits.len() % 8 == 0 { 8 } else { all_bits.len() % 8 };
-        
+        let last_byte_bits = if all_bits.len() % 8 == 0 {
+            8
+        } else {
+            all_bits.len() % 8
+        };
+
         // Pack: [1 byte: last_byte_bits] [packed bytes]
         let mut packed = vec![last_byte_bits as u8];
-        
+
         // Pack 8 bits into each byte (MSB first)
         for chunk in all_bits.chunks(8) {
             let mut byte = 0u8;
@@ -644,7 +656,7 @@ impl HuffmanGenerator {
             }
             packed.push(byte);
         }
-        
+
         Ok(packed)
     }
 
@@ -672,23 +684,28 @@ impl HuffmanGenerator {
 
         // Extract valid bits in last byte from first byte
         let last_byte_bits = packed[0] as usize;
-        
+
         // Handle empty encoding (0 bits)
         if last_byte_bits == 0 {
             if packed.len() != 1 {
-                return Err("Invalid packed data: header indicates 0 bits but has data bytes".to_string());
+                return Err(
+                    "Invalid packed data: header indicates 0 bits but has data bytes".to_string(),
+                );
             }
             return self.decode_bulk_raw(&[]);
         }
-        
+
         if last_byte_bits > 8 {
-            return Err(format!("Invalid header: last_byte_bits must be 0-8, got {}", last_byte_bits));
+            return Err(format!(
+                "Invalid header: last_byte_bits must be 0-8, got {}",
+                last_byte_bits
+            ));
         }
-        
+
         if packed.len() < 2 {
             return Err("Packed data too short: need at least 2 bytes (header + data)".to_string());
         }
-        
+
         // Calculate total bit count
         let data_bytes = packed.len() - 1;
         let bit_count = if last_byte_bits == 8 {
@@ -696,13 +713,13 @@ impl HuffmanGenerator {
         } else {
             (data_bytes - 1) * 8 + last_byte_bits
         };
-        
+
         // Unpack bits from data bytes
         let mut bits = Vec::with_capacity(bit_count);
         for (idx, &byte) in packed[1..].iter().enumerate() {
             let is_last_byte = idx == data_bytes - 1;
             let bits_in_this_byte = if is_last_byte { last_byte_bits } else { 8 };
-            
+
             for i in (8 - bits_in_this_byte..8).rev() {
                 bits.push((byte >> i) & 1);
             }
@@ -711,8 +728,7 @@ impl HuffmanGenerator {
         if bits.len() != bit_count {
             return Err(format!(
                 "Could not unpack {} bits from {} bytes",
-                bit_count,
-                data_bytes
+                bit_count, data_bytes
             ));
         }
 

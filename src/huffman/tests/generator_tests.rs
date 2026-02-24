@@ -199,12 +199,15 @@ mod tests {
     fn test_enc_dec_json_loading() {
         // Load the enc_dec.json file created by create_tree
         let json_data = include_str!("../../../enc_dec.json");
-        
+
         // Deserialize the HuffmanGenerator
         let huffman = HuffmanGenerator::from_json(json_data)
             .expect("Failed to load HuffmanGenerator from enc_dec.json");
 
-        println!("Loaded HuffmanGenerator with alphabet size: {}", huffman.alphabet_size());
+        println!(
+            "Loaded HuffmanGenerator with alphabet size: {}",
+            huffman.alphabet_size()
+        );
         println!("Encoding map size: {}", huffman.get_encoding_map().len());
 
         // Test some common token IDs (these should exist for a typical tokenizer)
@@ -213,15 +216,24 @@ mod tests {
         for token_id in test_token_ids {
             match huffman.encode(token_id) {
                 Ok(encoded) => {
-                    println!("Token ID {} encoded to {} bytes: {:?}", token_id, encoded.len(), encoded);
-                    
+                    println!(
+                        "Token ID {} encoded to {} bytes: {:?}",
+                        token_id,
+                        encoded.len(),
+                        encoded
+                    );
+
                     // Note: For m=2, encode() returns packed format with header,
                     // not raw alphabet symbols, so we skip symbol validation
-                    
+
                     // Test decoding
                     match huffman.decode(&encoded) {
                         Ok(decoded) => {
-                            assert_eq!(decoded, token_id, "Roundtrip failed for token ID {}", token_id);
+                            assert_eq!(
+                                decoded, token_id,
+                                "Roundtrip failed for token ID {}",
+                                token_id
+                            );
                             println!("  ✓ Roundtrip successful");
                         }
                         Err(e) => {
@@ -230,7 +242,10 @@ mod tests {
                     }
                 }
                 Err(e) => {
-                    println!("Token ID {} not in encoding map (expected): {}", token_id, e);
+                    println!(
+                        "Token ID {} not in encoding map (expected): {}",
+                        token_id, e
+                    );
                 }
             }
         }
@@ -243,27 +258,36 @@ mod tests {
         let pmf = vec![0.4, 0.3, 0.2, 0.1];
         let m = 2u8;
 
-        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m)
-            .expect("Failed to create HuffmanGenerator");
+        let huffman =
+            HuffmanGenerator::new(num_tokens, &pmf, m).expect("Failed to create HuffmanGenerator");
 
         // Test packed encoding/decoding for each token (0..3)
         for token_id in 0..num_tokens as u32 {
             // Test packed encoding
-            let packed = huffman.encode_packed(token_id)
+            let packed = huffman
+                .encode_packed(token_id)
                 .expect(&format!("Failed to pack encode token ID {}", token_id));
-            
+
             println!("Token ID {} packed to {} bytes", token_id, packed.len());
-            assert!(packed.len() >= 1, "Packed data should have at least 1-byte header");
-            
+            assert!(
+                packed.len() >= 1,
+                "Packed data should have at least 1-byte header"
+            );
+
             // Extract valid bits in last byte from header
             let last_byte_bits = packed[0];
             println!("  Last byte bits: {}", last_byte_bits);
-            
+
             // Test packed decoding
-            let decoded = huffman.decode_packed(&packed)
+            let decoded = huffman
+                .decode_packed(&packed)
                 .expect(&format!("Failed to pack decode token ID {}", token_id));
-            
-            assert_eq!(decoded, token_id, "Packed roundtrip failed for token ID {}", token_id);
+
+            assert_eq!(
+                decoded, token_id,
+                "Packed roundtrip failed for token ID {}",
+                token_id
+            );
             println!("  ✓ Packed roundtrip successful");
         }
     }
@@ -306,11 +330,15 @@ mod tests {
             for token_id in test_token_ids {
                 if let Ok(packed) = huffman.encode_packed(token_id) {
                     println!("Token ID {} packed to {} bytes", token_id, packed.len());
-                    
+
                     // Verify we can unpack and decode
                     match huffman.decode_packed(&packed) {
                         Ok(decoded) => {
-                            assert_eq!(decoded, token_id, "Packed roundtrip failed for token ID {}", token_id);
+                            assert_eq!(
+                                decoded, token_id,
+                                "Packed roundtrip failed for token ID {}",
+                                token_id
+                            );
                             println!("  ✓ Packed roundtrip successful");
                         }
                         Err(e) => {
@@ -322,7 +350,168 @@ mod tests {
                 }
             }
         } else {
-            println!("Skipping packed encoding test (m={}, expected m=2)", huffman.alphabet_size());
+            println!(
+                "Skipping packed encoding test (m={}, expected m=2)",
+                huffman.alphabet_size()
+            );
         }
+    }
+
+    #[test]
+    fn test_bulk_encoding_decoding() {
+        let num_tokens = 4;
+        let pmf = [0.4, 0.3, 0.2, 0.1];
+        let m = 2u8;
+
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
+
+        // Test bulk encoding and decoding
+        let token_ids = vec![0u32, 1u32, 2u32, 3u32, 0u32, 1u32];
+        
+        let encoded = huffman.encode_bulk(&token_ids).unwrap();
+        println!("Bulk encoded {} tokens to {} symbols", token_ids.len(), encoded.len());
+        
+        let decoded = huffman.decode_bulk(&encoded).unwrap();
+        assert_eq!(decoded, token_ids, "Bulk roundtrip failed");
+        println!("  ✓ Bulk roundtrip successful");
+    }
+
+    #[test]
+    fn test_bulk_packed_encoding_decoding() {
+        let num_tokens = 4;
+        let pmf = [0.4, 0.3, 0.2, 0.1];
+        let m = 2u8;
+
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
+
+        // Test bulk packed encoding and decoding (only for binary)
+        let token_ids = vec![0u32, 1u32, 2u32, 3u32, 0u32, 1u32, 2u32];
+        
+        let packed = huffman.encode_bulk_packed(&token_ids).unwrap();
+        println!("Bulk packed encoded {} tokens to {} bytes", token_ids.len(), packed.len());
+        assert!(packed.len() >= 1, "Packed data should have at least 1-byte header");
+        
+        let decoded = huffman.decode_bulk_packed(&packed).unwrap();
+        assert_eq!(decoded, token_ids, "Bulk packed roundtrip failed");
+        println!("  ✓ Bulk packed roundtrip successful");
+    }
+
+    #[test]
+    fn test_bulk_packed_only_for_binary() {
+        let num_tokens = 3;
+        let pmf = [0.5, 0.3, 0.2];
+        let m = 3u8;
+
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
+
+        let token_ids = vec![0u32, 1u32, 2u32];
+        
+        // Bulk packed encoding should fail for m != 2
+        let result = huffman.encode_bulk_packed(&token_ids);
+        assert!(result.is_err(), "Bulk packed encoding should only work for m=2");
+        assert!(result.unwrap_err().contains("only supported for binary"));
+
+        // Bulk packed decoding should also fail
+        let dummy_data = vec![8, 0xFF];
+        let result = huffman.decode_bulk_packed(&dummy_data);
+        assert!(result.is_err(), "Bulk packed decoding should only work for m=2");
+        assert!(result.unwrap_err().contains("only supported for binary"));
+    }
+
+    #[test]
+    fn test_empty_bulk_encoding() {
+        let num_tokens = 4;
+        let pmf = [0.4, 0.3, 0.2, 0.1];
+        let m = 2u8;
+
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
+
+        // Test empty input
+        let token_ids: Vec<u32> = vec![];
+        
+        let encoded = huffman.encode_bulk(&token_ids).unwrap();
+        assert_eq!(encoded.len(), 0, "Empty input should produce empty output");
+        
+        let decoded = huffman.decode_bulk(&encoded).unwrap();
+        assert_eq!(decoded.len(), 0, "Empty encoding should decode to empty");
+    }
+
+    #[test]
+    fn test_empty_bulk_packed_encoding() {
+        let num_tokens = 4;
+        let pmf = [0.4, 0.3, 0.2, 0.1];
+        let m = 2u8;
+
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
+
+        // Test empty input
+        let token_ids: Vec<u32> = vec![];
+        
+        let packed = huffman.encode_bulk_packed(&token_ids).unwrap();
+        assert_eq!(packed.len(), 1, "Empty input should produce just the header byte (0)");
+        assert_eq!(packed[0], 0, "Header should indicate 0 valid bits in last byte");
+        
+        let decoded = huffman.decode_bulk_packed(&packed).unwrap();
+        assert_eq!(decoded.len(), 0, "Empty packed encoding should decode to empty");
+    }
+
+    #[test]
+    fn test_bulk_encoding_ternary() {
+        let num_tokens = 5;
+        let pmf = [0.3, 0.25, 0.2, 0.15, 0.1];
+        let m = 3u8;
+
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
+
+        // Test bulk encoding with ternary alphabet
+        let token_ids = vec![0u32, 1u32, 2u32, 3u32, 4u32, 0u32];
+        
+        let encoded = huffman.encode_bulk(&token_ids).unwrap();
+        println!("Ternary bulk encoded {} tokens to {} symbols", token_ids.len(), encoded.len());
+        
+        // Verify all symbols are valid (< 3)
+        assert!(encoded.iter().all(|&s| s < m));
+        
+        let decoded = huffman.decode_bulk(&encoded).unwrap();
+        assert_eq!(decoded, token_ids, "Ternary bulk roundtrip failed");
+        println!("  ✓ Ternary bulk roundtrip successful");
+    }
+
+    #[test]
+    fn test_large_bulk_encoding() {
+        let num_tokens = 4;
+        let pmf = [0.4, 0.3, 0.2, 0.1];
+        let m = 2u8;
+
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
+
+        // Test with a larger sequence
+        let token_ids: Vec<u32> = (0..100).map(|i| (i % num_tokens) as u32).collect();
+        
+        let encoded = huffman.encode_bulk(&token_ids).unwrap();
+        println!("Large bulk encoded {} tokens to {} symbols", token_ids.len(), encoded.len());
+        
+        let decoded = huffman.decode_bulk(&encoded).unwrap();
+        assert_eq!(decoded, token_ids, "Large bulk roundtrip failed");
+        println!("  ✓ Large bulk roundtrip successful");
+    }
+
+    #[test]
+    fn test_large_bulk_packed_encoding() {
+        let num_tokens = 4;
+        let pmf = [0.4, 0.3, 0.2, 0.1];
+        let m = 2u8;
+
+        let huffman = HuffmanGenerator::new(num_tokens, &pmf, m).unwrap();
+
+        // Test with a larger sequence
+        let token_ids: Vec<u32> = (0..100).map(|i| (i % num_tokens) as u32).collect();
+        
+        let packed = huffman.encode_bulk_packed(&token_ids).unwrap();
+        println!("Large bulk packed encoded {} tokens to {} bytes", token_ids.len(), packed.len());
+        
+        let decoded = huffman.decode_bulk_packed(&packed).unwrap();
+        assert_eq!(decoded, token_ids, "Large bulk packed roundtrip failed");
+        println!("  ✓ Large bulk packed roundtrip successful");
     }
 }

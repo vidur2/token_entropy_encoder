@@ -2,10 +2,9 @@
 
 const http = require('http');
 const WebSocket = require('ws');
-const { encode } = require('../pkg/token_entropy_encoder.js');
+const { encode_bulk } = require('../pkg/token_entropy_encoder.js');
 
 const PORT = 3000;
-const CHUNK_SIZE = 256; // Size of each chunk to send
 
 // Create HTTP server for health check
 const server = http.createServer((req, res) => {
@@ -38,35 +37,24 @@ wss.on('connection', (ws) => {
             const request = JSON.parse(data.toString());
             const tokenIds = request.token_ids || [];
             
-            console.log(`Received token IDs: [${tokenIds.join(', ')}]`);
+            console.log(`Received ${tokenIds.length} token IDs: [${tokenIds.join(', ')}]`);
             
-            // For now, encode just the first token ID (matching Rust server behavior)
-            const tokenIdToEncode = tokenIds[0] || 0;
-            console.log(`Encoding token ID: ${tokenIdToEncode}`);
-            
-            // Encode the token ID using WASM
-            const encoded = encode(tokenIdToEncode);
-            console.log(`Encoded to ${encoded.length} bytes`);
-            
-            // Stream the encoded data in chunks
-            let offset = 0;
-            let chunkNum = 1;
-            
-            while (offset < encoded.length) {
-                const end = Math.min(offset + CHUNK_SIZE, encoded.length);
-                const chunk = encoded.slice(offset, end);
-                
-                // Send as binary data
-                ws.send(chunk, { binary: true });
-                console.log(`Sent chunk ${chunkNum}: ${chunk.length} bytes`);
-                
-                offset = end;
-                chunkNum++;
+            if (tokenIds.length === 0) {
+                console.log('No token IDs to encode');
+                ws.close();
+                return;
             }
             
-            // Send completion message
-            ws.send('Stream complete');
-            console.log('Stream complete\n');
+            // Encode all token IDs in bulk
+            console.log(`Encoding ${tokenIds.length} tokens in bulk...`);
+            const encoded = encode_bulk(tokenIds);
+            console.log(`Encoded to ${encoded.length} bytes (including header)`);
+            
+            // Send the complete encoded packet as a single binary message
+            ws.send(encoded, { binary: true });
+            console.log(`Sent encoded packet: ${encoded.length} bytes\n`);
+            
+            // Close the connection (client knows stream is done when connection closes)
             ws.close();
             
         } catch (error) {
@@ -74,6 +62,7 @@ wss.on('connection', (ws) => {
             ws.send(JSON.stringify({
                 error: error.message
             }));
+            ws.close();
         }
     });
     

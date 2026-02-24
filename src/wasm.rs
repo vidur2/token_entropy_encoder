@@ -66,7 +66,7 @@ pub fn is_loaded() -> bool {
 }
 
 /// Get the weighted average code length using probabilities from the tree
-/// 
+///
 /// Returns the expected code length: sum(p_i * length_i) for all tokens
 #[wasm_bindgen]
 pub fn average_code_length() -> f64 {
@@ -93,9 +93,9 @@ pub fn encode_bulk(tokens: Box<[JsValue]>) -> Result<Vec<u8>, JsValue> {
                 .map(|n| n as u32)
         })
         .collect();
-    
+
     let token_ids = token_ids?;
-    
+
     HUFFMAN
         .encode_bulk(&token_ids)
         .map_err(|e| JsValue::from_str(&format!("Bulk encode error: {}", e)))
@@ -117,7 +117,7 @@ pub fn decode_bulk(buffer: &[u8]) -> Result<Box<[JsValue]>, JsValue> {
     let token_ids = HUFFMAN
         .decode_bulk(buffer)
         .map_err(|e| JsValue::from_str(&format!("Bulk decode error: {}", e)))?;
-    
+
     // Convert Vec<u32> to Box<[JsValue]>
     let js_values: Vec<JsValue> = token_ids.into_iter().map(|id| JsValue::from(id)).collect();
     Ok(js_values.into_boxed_slice())

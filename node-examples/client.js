@@ -11,79 +11,91 @@ async function testWebSocketChat() {
 
     const ws = new WebSocket(SERVER_URL);
 
-    // Accumulate all chunks
-    let allChunks = [];
-    let receivedComplete = false;
+    // Track requests and responses
+    let currentRequest = 0;
+    let requestTokens = [];
+    let allDecodedTokens = [];
+    let messageCount = 0;
 
-    ws.on('open', () => {
-        console.log('Connected to server!\n');
+    // Define multiple requests to send
+    const requests = [
+        [0, 1, 2, 3, 10, 50, 100, 200, 300, 400, 500],
+        [1000, 1001, 1002, 1003, 1004],
+        [5, 15, 25, 35, 45, 55, 65, 75, 85, 95],
+    ];
 
-        // Send token IDs to encode
-        // Example: common token IDs like [100, 200, 300]
-        const tokenIds = [100, 200, 300, 400, 500];
+    function sendNextRequest() {
+        if (currentRequest >= requests.length) {
+            console.log('\n=== All requests sent, closing connection ===');
+            ws.close();
+            return;
+        }
+
+        const tokenIds = requests[currentRequest];
+        requestTokens = [...tokenIds]; // Save for verification
+        
         const request = {
             token_ids: tokenIds
         };
 
-        console.log('Sending token IDs:', tokenIds);
+        console.log(`\n[Request ${currentRequest + 1}] Sending token IDs:`, tokenIds);
+        console.log(`  Total tokens to send: ${tokenIds.length}`);
         ws.send(JSON.stringify(request));
-        console.log('Waiting for encoded response chunks...\n');
+        console.log('  Waiting for encoded response chunks...\n');
+        
+        currentRequest++;
+    }
+
+    ws.on('open', () => {
+        console.log('Connected to server!\n');
+        sendNextRequest(); // Send first request
     });
 
     ws.on('message', (data) => {
         if (data instanceof Buffer) {
-            // Binary message - this is an encoded chunk
-            console.log(`Received chunk: ${data.length} bytes`);
-            allChunks.push(...Array.from(data));
-        } else {
-            // Text message
-            const text = data.toString();
-            console.log('Server message:', text);
+            // Binary message - this is a complete encoded packet from a flush
+            messageCount++;
+            console.log(`[Message ${messageCount}] Received encoded packet: ${data.length} bytes`);
             
-            if (text === 'Stream complete') {
-                receivedComplete = true;
+            try {
+                // Each binary message is a complete encoded packet with header
+                // We can decode it immediately
+                const buffer = new Uint8Array(data);
+                const decoded = decode_bulk(buffer);
                 
-                // Decode all accumulated chunks
-                console.log('\n--- Decoding ---');
-                console.log('Total encoded bytes received:', allChunks.length);
+                console.log(`  Decoded ${decoded.length} tokens:`, decoded);
                 
-                try {
-                    const buffer = new Uint8Array(allChunks);
-                    const decoded = decode_bulk(buffer);
-                    console.log('Decoded tokens:', decoded);
-                    console.log('Number of tokens:', decoded.length);
-                } catch (error) {
-                    console.error('Decode error:', error.message);
+                // Accumulate decoded tokens
+                allDecodedTokens.push(...decoded);
+                
+                // Check if we've received all tokens for current request
+                if (allDecodedTokens.length >= requestTokens.length) {
+                    console.log(`\n✓ Request complete! Decoded all ${allDecodedTokens.length} tokens`);
+                    allDecodedTokens = []; // Reset for next request
+                    
+                    // Small delay before sending next request
+                    setTimeout(() => sendNextRequest(), 100);
                 }
                 
-                ws.close();
+            } catch (error) {
+                console.error('  Decode error:', error.message);
             }
+        } else {
+            // Text message (for errors or status updates)
+            const text = data.toString();
+            console.log('\nServer message:', text);
         }
     });
 
     ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
+        console.error('\nWebSocket error:', error.message);
     });
 
     ws.on('close', () => {
-        if (!receivedComplete) {
-            console.log('\nConnection closed before "Stream complete" message');
-            console.log('Attempting to decode anyway...\n');
-            console.log('--- Decoding ---');
-            console.log('Total bytes received:', allChunks.length);
-            
-            try {
-                const buffer = new Uint8Array(allChunks);
-                console.log(buffer)
-                const decoded = decode_bulk(buffer);
-                console.log('Decoded tokens:', decoded);
-                console.log('Number of tokens:', decoded.length);
-            } catch (error) {
-                console.error('Decode error:', error.message);
-            }
-        } else {
-            console.log('\nConnection closed');
-        }
+        console.log('\n--- Connection Closed ---');
+        console.log(`Total requests sent: ${currentRequest}`);
+        console.log(`Total messages received: ${messageCount}`);
+        console.log('\nDone!');
     });
 }
 
