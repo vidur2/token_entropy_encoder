@@ -1,5 +1,6 @@
 pub mod huffman;
 pub mod token_compressor;
+pub mod decoder;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod server;
