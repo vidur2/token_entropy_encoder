@@ -430,7 +430,9 @@ mod tests {
         let token_ids: Vec<u32> = vec![];
         
         let encoded = huffman.encode_bulk(&token_ids).unwrap();
-        assert_eq!(encoded.len(), 0, "Empty input should produce empty output");
+        // For m=2 (packed encoding), empty input produces a 1-byte header
+        assert_eq!(encoded.len(), 1, "Empty input should produce just the header byte for m=2");
+        assert_eq!(encoded[0], 0, "Header should indicate 0 valid bits");
         
         let decoded = huffman.decode_bulk(&encoded).unwrap();
         assert_eq!(decoded.len(), 0, "Empty encoding should decode to empty");

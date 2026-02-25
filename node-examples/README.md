@@ -96,6 +96,10 @@ node-examples/
 ├── test.js             # Comprehensive test suite
 ├── client.js           # WebSocket client that connects to Rust server
 ├── server.js           # Node.js WebSocket server alternative
+├── decode_example.js   # Token ID to text decoding example (NEW)
+├── full_pipeline.js    # Complete integration test (NEW)
+├── practical_example.js # Real-world usage with metrics (NEW)
+├── streaming_example.js # Streaming LLM response handling (NEW)
 ├── package.json        # Node.js dependencies (ws for WebSocket)
 └── README.md           # This file
 
@@ -104,4 +108,88 @@ node-examples/
 ├── token_entropy_encoder_bg.wasm
 └── ...
 ```
+
+## NEW: Full Pipeline Integration
+
+The encoder now includes complete pipeline support from compression to displayable text:
+
+### 4. Token Decoding (`decode_example.js`)
+
+Demonstrates converting token IDs to displayable UTF-8 strings:
+
+```bash
+node decode_example.js
+```
+
+This shows how to use the embedded decoder to convert LLM token IDs into human-readable text.
+
+### 5. Full Pipeline (`full_pipeline.js`)
+
+Complete integration test showing the entire flow:
+```bash
+node full_pipeline.js
+```
+
+Pipeline stages:
+1. **Encode**: Token IDs → Compressed bytes (Huffman)
+2. **Decode**: Compressed bytes → Token IDs (Huffman)
+3. **Display**: Token IDs → UTF-8 text (Decoder)
+
+### 6. Practical Example (`practical_example.js`)
+
+Real-world usage scenario with compression metrics:
+```bash
+node practical_example.js
+```
+
+Features:
+- Compression/decompression workflow
+- Performance metrics (compression ratio, space saved)
+- Batch processing examples
+- Storage and transmission use cases
+
+### 7. Streaming Example (`streaming_example.js`)
+
+Simulates real-time LLM token streaming:
+```bash
+node streaming_example.js
+```
+
+Demonstrates:
+- Incremental token compression as they arrive
+- Progressive text reconstruction
+- Cumulative statistics tracking
+- Use cases for chat history, caching, etc.
+
+## API Overview
+
+```javascript
+const {
+    // Huffman compression
+    encode,           // Single token: u32 → Uint8Array
+    encode_bulk,      // Multiple tokens: u32[] → Uint8Array
+    decode,           // Single token: Uint8Array → u32
+    decode_bulk,      // Multiple tokens: Uint8Array → u32[]
+    
+    // Decoder (token IDs to text)
+    decode_ids,       // u32[] → Uint8Array (UTF-8 bytes)
+    decoder_vocab_size,      // Get vocabulary size
+    decoder_is_loaded,       // Check if decoder initialized
+    
+    // Metadata
+    alphabet_size,           // Get Huffman alphabet size
+    average_code_length,     // Get average code length
+    is_loaded,               // Check if encoder loaded
+    init                     // Initialize (auto-called)
+} = require('../pkg/token_entropy_encoder.js');
+```
+
+## Use Cases
+
+- **LLM Response Storage**: Compress conversation history efficiently
+- **Model Output Caching**: Reduce memory footprint of cached outputs
+- **Network Transmission**: Send token streams over limited bandwidth
+- **Training Data**: Store fine-tuning examples compactly
+- **Chat Logs**: Archive model interactions with compression
+- **Real-time Streaming**: Handle streaming LLM responses incrementally
 

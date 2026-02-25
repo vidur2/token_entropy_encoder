@@ -76,6 +76,138 @@ function decode_bulk(buffer) {
 exports.decode_bulk = decode_bulk;
 
 /**
+ * Decode a buffer of compressed bytes directly to UTF-8 text (bulk version)
+ *
+ * This combines Huffman bulk decoding and token-to-text conversion in a single call,
+ * minimizing JS/WASM boundary crossings for better performance.
+ *
+ * Pipeline: Compressed bytes → Token IDs → UTF-8 bytes
+ *
+ * # Arguments
+ * * `buffer` - A byte array containing Huffman-encoded data for multiple tokens
+ *
+ * # Returns
+ * A byte array containing the UTF-8 text representation of all tokens
+ * @param {Uint8Array} buffer
+ * @returns {Uint8Array}
+ */
+function decode_bulk_to_text(buffer) {
+    const ptr0 = passArray8ToWasm0(buffer, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_bulk_to_text(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+exports.decode_bulk_to_text = decode_bulk_to_text;
+
+/**
+ * Decode token IDs into UTF-8 bytes (displayable string)
+ *
+ * # Arguments
+ * * `ids` - Array of token IDs to decode
+ *
+ * # Returns
+ * A byte array containing the UTF-8 representation of the decoded tokens
+ * @param {any[]} ids
+ * @returns {Uint8Array}
+ */
+function decode_ids(ids) {
+    const ptr0 = passArrayJsValueToWasm0(ids, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_ids(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+exports.decode_ids = decode_ids;
+
+/**
+ * Decode packed token IDs (u32 array as bytes) directly to UTF-8 text
+ *
+ * Takes a byte array representing packed u32 token IDs (little-endian) and
+ * converts them directly to UTF-8 text, bypassing Huffman decoding.
+ * This is useful when you have token IDs stored in raw binary format.
+ *
+ * Pipeline: Packed u32 bytes → Token IDs → UTF-8 bytes
+ *
+ * # Arguments
+ * * `packed_ids` - Byte array containing token IDs as little-endian u32s
+ *
+ * # Returns
+ * A byte array containing the UTF-8 text representation
+ * @param {Uint8Array} packed_ids
+ * @returns {Uint8Array}
+ */
+function decode_packed_ids_to_text(packed_ids) {
+    const ptr0 = passArray8ToWasm0(packed_ids, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_packed_ids_to_text(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+exports.decode_packed_ids_to_text = decode_packed_ids_to_text;
+
+/**
+ * Decode a buffer of compressed bytes directly to UTF-8 text
+ *
+ * This combines Huffman decoding and token-to-text conversion in a single call,
+ * minimizing JS/WASM boundary crossings for better performance.
+ *
+ * Pipeline: Compressed bytes → Token IDs → UTF-8 bytes
+ *
+ * # Arguments
+ * * `buffer` - A byte array containing Huffman-encoded data
+ *
+ * # Returns
+ * A byte array containing the UTF-8 text representation
+ * @param {Uint8Array} buffer
+ * @returns {Uint8Array}
+ */
+function decode_to_text(buffer) {
+    const ptr0 = passArray8ToWasm0(buffer, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_to_text(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+exports.decode_to_text = decode_to_text;
+
+/**
+ * Check if the decoder is loaded
+ * @returns {boolean}
+ */
+function decoder_is_loaded() {
+    const ret = wasm.decoder_is_loaded();
+    return ret !== 0;
+}
+exports.decoder_is_loaded = decoder_is_loaded;
+
+/**
+ * Get the vocabulary size of the decoder
+ * @returns {number}
+ */
+function decoder_vocab_size() {
+    const ret = wasm.decoder_vocab_size();
+    return ret >>> 0;
+}
+exports.decoder_vocab_size = decoder_vocab_size;
+
+/**
  * Encode a token ID into bytes
  *
  * For m=2 (binary), returns packed format: [1 byte: valid bits in last byte (0-8)] [packed bits]
@@ -127,7 +259,35 @@ function encode_bulk(tokens) {
 exports.encode_bulk = encode_bulk;
 
 /**
- * Initialize the WASM module and load the HuffmanGenerator
+ * Encode token IDs and immediately decode to text (for testing/validation)
+ *
+ * This combines encoding and decoding in a single call for round-trip validation.
+ *
+ * Pipeline: Token IDs → Huffman encode → Huffman decode → UTF-8 bytes
+ *
+ * # Arguments
+ * * `ids` - Array of token IDs to encode and decode
+ *
+ * # Returns
+ * A byte array containing the UTF-8 text representation
+ * @param {any[]} ids
+ * @returns {Uint8Array}
+ */
+function encode_decode_to_text(ids) {
+    const ptr0 = passArrayJsValueToWasm0(ids, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.encode_decode_to_text(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+exports.encode_decode_to_text = encode_decode_to_text;
+
+/**
+ * Initialize the WASM module and load the HuffmanGenerator and Decoder
  * This is called automatically when the module is loaded
  */
 function init() {

@@ -13,6 +13,50 @@ const VOCAB_SIZE: usize = 128256;
 // Bit I/O Utilities (zero-allocation)
 // ============================================================================
 
+/// Flattened trie node for cache-friendly decoding
+/// Instead of Box<TrieNode> pointers, uses array indices
+#[derive(Clone, Debug)]
+struct FlatTrieNode {
+    /// Token ID if this is a leaf, otherwise u32::MAX
+    token_id: u32,
+    /// Index of left child (bit=0) in the flat array, or u32::MAX if none
+    left_child: u32,
+    /// Index of right child (bit=1) in the flat array, or u32::MAX if none
+    right_child: u32,
+}
+
+impl FlatTrieNode {
+    fn new_leaf(token_id: u32) -> Self {
+        Self {
+            token_id,
+            left_child: u32::MAX,
+            right_child: u32::MAX,
+        }
+    }
+    
+    fn new_internal(left_child: u32, right_child: u32) -> Self {
+        Self {
+            token_id: u32::MAX,
+            left_child,
+            right_child,
+        }
+    }
+    
+    #[inline(always)]
+    fn is_leaf(&self) -> bool {
+        self.token_id != u32::MAX
+    }
+    
+    #[inline(always)]
+    fn get_child(&self, bit: u8) -> u32 {
+        if bit == 0 {
+            self.left_child
+        } else {
+            self.right_child
+        }
+    }
+}
+
 /// Huffman code representation (optimized for binary, supports m-ary)
 #[derive(Clone, Debug)]
 enum Code {
@@ -153,6 +197,7 @@ impl<'a> BitReader<'a> {
     }
 
     /// Read a single bit (returns 0 or 1, or None if EOF)
+    #[inline(always)]
     fn read_bit(&mut self) -> Option<u8> {
         if self.byte_idx >= self.data.len() {
             return None;
@@ -170,9 +215,148 @@ impl<'a> BitReader<'a> {
         Some(bit)
     }
     
+    /// Read up to K bits at once (MSB first) and consume them
+    /// Returns (bits_read, num_bits_actually_read)
+    /// This is optimized for reading full bytes when possible
+    #[inline]
+    fn read_k_bits(&mut self, k: u8) -> (u64, u8) {
+        let mut result = 0u64;
+        let mut bits_read = 0u8;
+        
+        // Fast path: read aligned bytes when possible
+        while bits_read + 8 <= k && self.bit_idx == 0 && self.byte_idx < self.data.len() {
+            let byte = self.data[self.byte_idx];
+            result = (result << 8) | (byte as u64);
+            bits_read += 8;
+            self.byte_idx += 1;
+        }
+        
+        // Read remaining bits one at a time
+        while bits_read < k && self.byte_idx < self.data.len() {
+            let byte = self.data[self.byte_idx];
+            let bit = (byte >> (7 - self.bit_idx)) & 1;
+            result = (result << 1) | (bit as u64);
+            bits_read += 1;
+            
+            self.bit_idx += 1;
+            if self.bit_idx == 8 {
+                self.bit_idx = 0;
+                self.byte_idx += 1;
+            }
+        }
+        
+        (result, bits_read)
+    }
+    
+    /// Rewind the reader by N bits (used when we over-read)
+    #[inline(always)]
+    fn rewind_bits(&mut self, num_bits: u8) {
+        let mut remaining = num_bits as i16;
+        
+        while remaining > 0 {
+            if self.bit_idx == 0 {
+                if self.byte_idx > 0 {
+                    self.byte_idx -= 1;
+                    self.bit_idx = 8;
+                } else {
+                    break; // Can't rewind before start
+                }
+            }
+            
+            let bits_in_current_byte = self.bit_idx;
+            let bits_to_rewind = remaining.min(bits_in_current_byte as i16);
+            self.bit_idx -= bits_to_rewind as u8;
+            remaining -= bits_to_rewind;
+        }
+    }
+    
     /// Check if there are more bits available
+    #[inline(always)]
     fn has_bits(&self) -> bool {
         self.byte_idx < self.data.len()
+    }
+    
+    /// Peek at the next K bits without consuming them (MSB first)
+    /// Returns None if not enough bits available
+    /// Optimized for K <= 16
+    #[inline]
+    fn peek_bits(&self, k: u8) -> Option<u32> {
+        if k > 16 {
+            return None;
+        }
+        
+        let mut result = 0u32;
+        let mut bits_read = 0u8;
+        let mut byte_idx = self.byte_idx;
+        let mut bit_idx = self.bit_idx;
+        
+        // Fast path: read full bytes when aligned
+        while bits_read + 8 <= k && bit_idx == 0 && byte_idx < self.data.len() {
+            let byte = self.data[byte_idx];
+            result = (result << 8) | (byte as u32);
+            bits_read += 8;
+            byte_idx += 1;
+        }
+        
+        // Read remaining bits
+        while bits_read < k {
+            if byte_idx >= self.data.len() {
+                return None;
+            }
+            
+            let byte = self.data[byte_idx];
+            let bit = (byte >> (7 - bit_idx)) & 1;
+            result = (result << 1) | (bit as u32);
+            bits_read += 1;
+            
+            bit_idx += 1;
+            if bit_idx >= 8 {
+                bit_idx = 0;
+                byte_idx += 1;
+            }
+        }
+        
+        Some(result)
+    }
+    
+    /// Consume K bits (advance the reader position)
+    /// Returns false if not enough bits available
+    #[inline]
+    fn consume_bits(&mut self, k: u8) -> bool {
+        let mut remaining = k;
+        
+        // Fast path: skip full bytes when aligned
+        while remaining >= 8 && self.bit_idx == 0 && self.byte_idx < self.data.len() {
+            self.byte_idx += 1;
+            remaining -= 8;
+        }
+        
+        // Consume remaining bits
+        while remaining > 0 {
+            if self.byte_idx >= self.data.len() {
+                return false;
+            }
+            
+            let bits_in_byte = 8 - self.bit_idx;
+            let bits_to_consume = remaining.min(bits_in_byte);
+            
+            self.bit_idx += bits_to_consume;
+            if self.bit_idx >= 8 {
+                self.bit_idx = 0;
+                self.byte_idx += 1;
+            }
+            
+            remaining -= bits_to_consume;
+        }
+        
+        true
+    }
+    
+    /// Get the number of bits remaining from current position to end of data
+    #[inline]
+    fn bits_remaining(&self, total_bits: usize) -> usize {
+        let bits_consumed = self.byte_idx * 8 + self.bit_idx as usize;
+        total_bits.saturating_sub(bits_consumed)
     }
 }
 
@@ -188,6 +372,9 @@ pub struct HuffmanGenerator {
     /// Set of valid token IDs that are in the tree
     /// Used to distinguish between "not in tree" and "empty encoding"
     valid_tokens: std::collections::HashSet<u32>,
+    /// Flattened binary trie for fast decoding (m=2 only)
+    /// Array-based representation avoids pointer chasing
+    flat_trie: Vec<FlatTrieNode>,
 }
 
 impl TokenCompressor for HuffmanGenerator {
@@ -238,9 +425,15 @@ impl TokenCompressor for HuffmanGenerator {
     /// # Returns
     /// Encoded bytes (packed for m=2, raw symbols otherwise)
     fn encode_bulk(&self, token_ids: &[u32]) -> Result<Vec<u8>, String> {
-        // Special case: empty input always returns empty output
+        // Special case: empty input
         if token_ids.is_empty() {
-            return Ok(Vec::new());
+            // For binary (m=2), return 1-byte header indicating 0 bits
+            // For m-ary, return empty output
+            if self.m == 2 {
+                return Ok(vec![0]);
+            } else {
+                return Ok(Vec::new());
+            }
         }
         
         if self.m == 2 {
@@ -481,11 +674,19 @@ impl HuffmanGenerator {
         let mut valid_tokens = HashSet::new();
         Self::build_encoding_map(&root, m, 0, 0, Vec::new(), &mut encoding_map, &mut valid_tokens);
 
+        // Build flattened trie for fast binary decoding
+        let flat_trie = if m == 2 {
+            Self::build_flat_trie(&root)
+        } else {
+            Vec::new()
+        };
+
         Ok(HuffmanGenerator {
             root: Some(root),
             m,
             encoding_map,
             valid_tokens,
+            flat_trie,
         })
     }
 
@@ -588,9 +789,45 @@ impl HuffmanGenerator {
         }
     }
 
+    /// Build flattened trie from Box<TrieNode> tree for cache-friendly decoding
+    /// Returns Vec<FlatTrieNode> where index 0 is the root
+    fn build_flat_trie(root: &Box<TrieNode>) -> Vec<FlatTrieNode> {
+        let mut flat = Vec::new();
+        Self::flatten_trie_recursive(root.as_ref(), &mut flat);
+        flat
+    }
+
+    /// Recursively flatten the trie using post-order traversal
+    /// Returns the index of the flattened node
+    fn flatten_trie_recursive(node: &TrieNode, flat: &mut Vec<FlatTrieNode>) -> u32 {
+        // For binary trees, we have exactly 2 children
+        if node.is_leaf() {
+            // Leaf node
+            let idx = flat.len() as u32;
+            flat.push(FlatTrieNode::new_leaf(node.codeword.unwrap()));
+            idx
+        } else {
+            // Internal node - recursively flatten children first
+            let left_idx = if let Some(left) = &node.children[0] {
+                Self::flatten_trie_recursive(left.as_ref(), flat)
+            } else {
+                u32::MAX
+            };
+            
+            let right_idx = if let Some(right) = &node.children[1] {
+                Self::flatten_trie_recursive(right.as_ref(), flat)
+            } else {
+                u32::MAX
+            };
+            
+            let idx = flat.len() as u32;
+            flat.push(FlatTrieNode::new_internal(left_idx, right_idx));
+            idx
+        }
+    }
+
     /// Get the encoding map (for debugging/inspection)
     /// Returns a vector of (Vec<u8> symbols) for backward compatibility with tests
-    #[cfg(test)]
     pub fn get_encoding_map(&self) -> Vec<Vec<u8>> {
         self.encoding_map.iter().map(|code| code.to_vec()).collect()
     }
@@ -683,11 +920,23 @@ impl HuffmanGenerator {
             Self::build_encoding_map(root, deserialized.m, 0, 0, Vec::new(), &mut encoding_map, &mut valid_tokens);
         }
 
+        // Build flattened trie for fast binary decoding
+        let flat_trie = if deserialized.m == 2 {
+            if let Some(ref root) = deserialized.root {
+                Self::build_flat_trie(root)
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
         Ok(HuffmanGenerator {
             root: deserialized.root,
             m: deserialized.m,
             encoding_map,
             valid_tokens,
+            flat_trie,
         })
     }
 
@@ -909,7 +1158,7 @@ impl HuffmanGenerator {
 
     /// Decode packed bytes to multiple token IDs (only for m=2, binary alphabet)
     ///
-    /// This uses BitReader to decode directly from packed bytes with zero intermediate allocation.
+    /// Uses flattened trie for fast cache-friendly decoding.
     /// Expected format: [1 byte: valid bits in last byte (0-8, where 0 means empty)] [packed bits]
     ///
     /// # Arguments
@@ -961,43 +1210,56 @@ impl HuffmanGenerator {
             (data_bytes - 1) * 8 + last_byte_bits
         };
 
-        // Use BitReader to decode directly from packed bytes (zero allocation)
-        let root = self
-            .root
-            .as_ref()
-            .ok_or_else(|| "Huffman tree not initialized".to_string())?;
-
-        let mut reader = BitReader::new(&packed[1..]);
-        let mut result = Vec::new();
-        let mut current = root.as_ref();
-        let mut bits_read = 0;
-
-        // Decode tokens sequentially by walking the trie
-        while bits_read < bit_count {
-            let bit = reader
-                .read_bit()
-                .ok_or_else(|| "Unexpected end of bit stream".to_string())?;
-            bits_read += 1;
-
-            current = current.children[bit as usize]
-                .as_ref()
-                .ok_or_else(|| format!("Invalid encoding: no child for bit {}", bit))?
-                .as_ref();
-
-            // Check if we've reached a leaf (completed a token)
-            if current.is_leaf() {
-                let token_id = current
-                    .codeword
-                    .ok_or_else(|| "Reached leaf with no token ID".to_string())?;
-                result.push(token_id);
-                // Reset to root for next token
-                current = root.as_ref();
-            }
+        if self.flat_trie.is_empty() {
+            return Err("Flat trie not initialized".to_string());
         }
 
-        // Ensure we ended at the root (all tokens were complete)
-        if !current.is_leaf() && current as *const _ != root.as_ref() as *const _ {
-            return Err("Incomplete token at end of bit stream".to_string());
+        // Fast decoding with inline bit extraction and flat trie navigation
+        let data = &packed[1..];
+        let flat_nodes = &self.flat_trie;
+        let root_idx = (flat_nodes.len() - 1) as u32;
+        
+        let mut result = Vec::new();
+        let mut byte_idx = 0usize;
+        let mut bit_idx = 0u8;
+        let mut bits_read = 0usize;
+
+        // Main decode loop: walk flat trie bit-by-bit
+        while bits_read < bit_count {
+            let mut node_idx = root_idx;
+
+            loop {
+                if bits_read >= bit_count {
+                    return Err("Incomplete token at end of bit stream".to_string());
+                }
+
+                // Inline bit extraction for maximum performance
+                let byte = unsafe { *data.get_unchecked(byte_idx) };
+                let bit = (byte >> (7 - bit_idx)) & 1;
+                bits_read += 1;
+                bit_idx += 1;
+                if bit_idx >= 8 {
+                    bit_idx = 0;
+                    byte_idx += 1;
+                }
+
+                // Navigate flat trie (cache-friendly array access)
+                let node = unsafe { flat_nodes.get_unchecked(node_idx as usize) };
+                let child_idx = node.get_child(bit);
+
+                if child_idx == u32::MAX {
+                    return Err(format!("Invalid encoding: no child for bit {}", bit));
+                }
+
+                node_idx = child_idx;
+                let child_node = unsafe { flat_nodes.get_unchecked(node_idx as usize) };
+
+                // Check if we've reached a leaf
+                if child_node.is_leaf() {
+                    result.push(child_node.token_id);
+                    break; // Move to next token
+                }
+            }
         }
 
         Ok(result)

@@ -17,12 +17,7 @@ use tokio::sync::Mutex;
 pub struct ChatRequest {
     pub token_ids: Vec<u32>,
 }
-/*
-TODO:
-Create a max window size for huffman ws connection, flushing it when it gets to that
-Create a timeout on waiting for tokens, flushing the window when it gets to that
 
-*/
 
 /// Trait that generalizes over an axum async websocket server with Huffman encoding capabilities
 pub trait HuffmanServer<'a, const MAX_WINDOW_SIZE_TOKENS: u8, const FLUSH_TIMEOUT_MS: u64>:

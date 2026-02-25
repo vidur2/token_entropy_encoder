@@ -43,6 +43,76 @@ export function decode(buffer: Uint8Array): number;
 export function decode_bulk(buffer: Uint8Array): any[];
 
 /**
+ * Decode a buffer of compressed bytes directly to UTF-8 text (bulk version)
+ *
+ * This combines Huffman bulk decoding and token-to-text conversion in a single call,
+ * minimizing JS/WASM boundary crossings for better performance.
+ *
+ * Pipeline: Compressed bytes → Token IDs → UTF-8 bytes
+ *
+ * # Arguments
+ * * `buffer` - A byte array containing Huffman-encoded data for multiple tokens
+ *
+ * # Returns
+ * A byte array containing the UTF-8 text representation of all tokens
+ */
+export function decode_bulk_to_text(buffer: Uint8Array): Uint8Array;
+
+/**
+ * Decode token IDs into UTF-8 bytes (displayable string)
+ *
+ * # Arguments
+ * * `ids` - Array of token IDs to decode
+ *
+ * # Returns
+ * A byte array containing the UTF-8 representation of the decoded tokens
+ */
+export function decode_ids(ids: any[]): Uint8Array;
+
+/**
+ * Decode packed token IDs (u32 array as bytes) directly to UTF-8 text
+ *
+ * Takes a byte array representing packed u32 token IDs (little-endian) and
+ * converts them directly to UTF-8 text, bypassing Huffman decoding.
+ * This is useful when you have token IDs stored in raw binary format.
+ *
+ * Pipeline: Packed u32 bytes → Token IDs → UTF-8 bytes
+ *
+ * # Arguments
+ * * `packed_ids` - Byte array containing token IDs as little-endian u32s
+ *
+ * # Returns
+ * A byte array containing the UTF-8 text representation
+ */
+export function decode_packed_ids_to_text(packed_ids: Uint8Array): Uint8Array;
+
+/**
+ * Decode a buffer of compressed bytes directly to UTF-8 text
+ *
+ * This combines Huffman decoding and token-to-text conversion in a single call,
+ * minimizing JS/WASM boundary crossings for better performance.
+ *
+ * Pipeline: Compressed bytes → Token IDs → UTF-8 bytes
+ *
+ * # Arguments
+ * * `buffer` - A byte array containing Huffman-encoded data
+ *
+ * # Returns
+ * A byte array containing the UTF-8 text representation
+ */
+export function decode_to_text(buffer: Uint8Array): Uint8Array;
+
+/**
+ * Check if the decoder is loaded
+ */
+export function decoder_is_loaded(): boolean;
+
+/**
+ * Get the vocabulary size of the decoder
+ */
+export function decoder_vocab_size(): number;
+
+/**
  * Encode a token ID into bytes
  *
  * For m=2 (binary), returns packed format: [1 byte: valid bits in last byte (0-8)] [packed bits]
@@ -70,7 +140,22 @@ export function encode(token_id: number): Uint8Array;
 export function encode_bulk(tokens: any[]): Uint8Array;
 
 /**
- * Initialize the WASM module and load the HuffmanGenerator
+ * Encode token IDs and immediately decode to text (for testing/validation)
+ *
+ * This combines encoding and decoding in a single call for round-trip validation.
+ *
+ * Pipeline: Token IDs → Huffman encode → Huffman decode → UTF-8 bytes
+ *
+ * # Arguments
+ * * `ids` - Array of token IDs to encode and decode
+ *
+ * # Returns
+ * A byte array containing the UTF-8 text representation
+ */
+export function encode_decode_to_text(ids: any[]): Uint8Array;
+
+/**
+ * Initialize the WASM module and load the HuffmanGenerator and Decoder
  * This is called automatically when the module is loaded
  */
 export function init(): void;
