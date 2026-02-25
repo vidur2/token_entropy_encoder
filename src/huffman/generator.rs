@@ -9,15 +9,182 @@ use std::collections::{BinaryHeap, HashSet};
 #[cfg(target_arch = "wasm32")]
 const VOCAB_SIZE: usize = 128256;
 
+// ============================================================================
+// Bit I/O Utilities (zero-allocation)
+// ============================================================================
+
+/// Huffman code representation (optimized for binary, supports m-ary)
+#[derive(Clone, Debug)]
+enum Code {
+    /// Binary code (m=2): packed as u64, MSB-first
+    Binary { bits: u64, len: u8 },
+    /// M-ary code (m>2): sequence of symbols
+    Mary(Vec<u8>),
+}
+
+impl Code {
+    fn new_binary(bits: u64, len: u8) -> Self {
+        debug_assert!(len <= 64, "Code length must be <= 64 bits");
+        Self::Binary { bits, len }
+    }
+    
+    fn new_mary(symbols: Vec<u8>) -> Self {
+        Self::Mary(symbols)
+    }
+    
+    fn empty_binary() -> Self {
+        Self::Binary { bits: 0, len: 0 }
+    }
+    
+    fn empty_mary() -> Self {
+        Self::Mary(Vec::new())
+    }
+    
+    fn len(&self) -> u8 {
+        match self {
+            Code::Binary { len, .. } => *len,
+            Code::Mary(v) => v.len() as u8,
+        }
+    }
+    
+    fn to_vec(&self) -> Vec<u8> {
+        match self {
+            Code::Binary { bits, len } => {
+                let mut result = Vec::with_capacity(*len as usize);
+                for i in (0..*len).rev() {
+                    result.push(((*bits >> i) & 1) as u8);
+                }
+                result
+            }
+            Code::Mary(v) => v.clone(),
+        }
+    }
+}
+
+/// BitWriter - writes bits to a byte buffer with zero intermediate allocation
+struct BitWriter {
+    /// Output byte buffer
+    buf: Vec<u8>,
+    /// Current byte being written (accumulator)
+    cur: u8,
+    /// Number of bits written to current byte (0-7)
+    nbits: u8,
+}
+
+impl BitWriter {
+    /// Create a new BitWriter with estimated capacity
+    fn new(capacity_bytes: usize) -> Self {
+        Self {
+            buf: Vec::with_capacity(capacity_bytes),
+            cur: 0,
+            nbits: 0,
+        }
+    }
+
+    /// Write up to 64 bits (MSB-first)
+    /// Bits are right-aligned: for a 3-bit code "101", pass bits=0b101, bit_len=3
+    fn write_bits(&mut self, bits: u64, bit_len: u8) {
+        if bit_len == 0 {
+            return;
+        }
+        
+        debug_assert!(bit_len <= 64, "Cannot write more than 64 bits at once");
+        
+        let mut remaining = bit_len;
+        let bits_to_write = bits;
+        
+        while remaining > 0 {
+            // How many bits can we write to current byte?
+            let space_in_cur = 8 - self.nbits;
+            let bits_this_iter = remaining.min(space_in_cur);
+            
+            // Extract the top bits_this_iter bits from bits_to_write
+            let shift = remaining - bits_this_iter;
+            let mask = (1u64 << bits_this_iter) - 1;
+            let chunk = ((bits_to_write >> shift) & mask) as u8;
+            
+            // Write to current byte (MSB first means we shift left)
+            self.cur |= chunk << (space_in_cur - bits_this_iter);
+            self.nbits += bits_this_iter;
+            
+            // If current byte is full, flush it
+            if self.nbits == 8 {
+                self.buf.push(self.cur);
+                self.cur = 0;
+                self.nbits = 0;
+            }
+            
+            remaining -= bits_this_iter;
+        }
+    }
+
+    /// Finish writing and return the buffer (flush partial byte with 0-padding)
+    fn finish(mut self) -> Vec<u8> {
+        if self.nbits > 0 {
+            self.buf.push(self.cur);
+        }
+        self.buf
+    }
+    
+    /// Get the number of bits written
+    fn len_bits(&self) -> usize {
+        self.buf.len() * 8 + self.nbits as usize
+    }
+}
+
+/// BitReader - reads bits from a byte buffer with zero allocation
+struct BitReader<'a> {
+    /// Input byte buffer
+    data: &'a [u8],
+    /// Current byte index
+    byte_idx: usize,
+    /// Current bit position within current byte (0-7, MSB=0)
+    bit_idx: u8,
+}
+
+impl<'a> BitReader<'a> {
+    /// Create a new BitReader
+    fn new(data: &'a [u8]) -> Self {
+        Self {
+            data,
+            byte_idx: 0,
+            bit_idx: 0,
+        }
+    }
+
+    /// Read a single bit (returns 0 or 1, or None if EOF)
+    fn read_bit(&mut self) -> Option<u8> {
+        if self.byte_idx >= self.data.len() {
+            return None;
+        }
+        
+        let byte = self.data[self.byte_idx];
+        let bit = (byte >> (7 - self.bit_idx)) & 1;
+        
+        self.bit_idx += 1;
+        if self.bit_idx == 8 {
+            self.bit_idx = 0;
+            self.byte_idx += 1;
+        }
+        
+        Some(bit)
+    }
+    
+    /// Check if there are more bits available
+    fn has_bits(&self) -> bool {
+        self.byte_idx < self.data.len()
+    }
+}
+
 /// M-ary Huffman encoder/decoder
 pub struct HuffmanGenerator {
     /// Root of the trie
     root: Option<Box<TrieNode>>,
     /// Alphabet size (m)
     m: u8,
-    /// Encoding map: token_id -> sequence of alphabet symbols
+    /// Encoding map: token_id -> Code (zero-allocation representation)
     /// Index is the token ID, value is the encoding
-    encoding_map: Vec<Vec<u8>>,
+    encoding_map: Vec<Code>,
     /// Set of valid token IDs that are in the tree
     /// Used to distinguish between "not in tree" and "empty encoding"
     valid_tokens: std::collections::HashSet<u32>,
@@ -71,6 +238,11 @@ impl TokenCompressor for HuffmanGenerator {
     /// # Returns
     /// Encoded bytes (packed for m=2, raw symbols otherwise)
     fn encode_bulk(&self, token_ids: &[u32]) -> Result<Vec<u8>, String> {
+        // Special case: empty input always returns empty output
+        if token_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        
         if self.m == 2 {
             self.encode_bulk_packed(token_ids)
         } else {
@@ -89,6 +261,11 @@ impl TokenCompressor for HuffmanGenerator {
     /// # Returns
     /// Vector of decoded token IDs
     fn decode_bulk(&self, buffer: &[u8]) -> Result<Vec<u32>, String> {
+        // Special case: empty input always returns empty output
+        if buffer.is_empty() {
+            return Ok(Vec::new());
+        }
+        
         if self.m == 2 {
             self.decode_bulk_packed(buffer)
         } else {
@@ -138,6 +315,7 @@ impl TokenCompressor for HuffmanGenerator {
 
 impl HuffmanGenerator {
     /// Encode a token ID to raw alphabet symbols (internal method)
+    /// Used for non-binary alphabets and tests
     ///
     /// # Arguments
     /// * `token_id` - The token ID to encode
@@ -149,10 +327,11 @@ impl HuffmanGenerator {
             return Err(format!("Token ID {} not found in encoding map", token_id));
         }
 
-        Ok(self.encoding_map[token_id as usize].clone())
+        Ok(self.encoding_map[token_id as usize].to_vec())
     }
 
     /// Decode raw alphabet symbols to a token ID (internal method)
+    /// Used for non-binary alphabets and tests
     ///
     /// # Arguments
     /// * `alphabet_seq` - Sequence of alphabet symbols (each in range 0 to m-1)
@@ -191,6 +370,7 @@ impl HuffmanGenerator {
     }
 
     /// Encode multiple tokens to raw alphabet symbols (internal method)
+    /// Used for non-binary alphabets and tests
     ///
     /// # Arguments
     /// * `token_ids` - Slice of token IDs to encode
@@ -207,6 +387,7 @@ impl HuffmanGenerator {
     }
 
     /// Decode raw alphabet symbols to multiple token IDs (internal method)
+    /// Used for non-binary alphabets and tests
     ///
     /// This decodes tokens sequentially from the symbol stream until all symbols are consumed.
     ///
@@ -291,10 +472,14 @@ impl HuffmanGenerator {
         // Build the Huffman tree
         let root = Self::build_huffman_tree(num_tokens, pmf, m as usize);
 
-        // Build encoding map as a fixed-size array
-        let mut encoding_map = vec![Vec::new(); num_tokens];
+        // Build encoding map as a fixed-size array of Codes
+        let mut encoding_map = if m == 2 {
+            vec![Code::empty_binary(); num_tokens]
+        } else {
+            vec![Code::empty_mary(); num_tokens]
+        };
         let mut valid_tokens = HashSet::new();
-        Self::build_encoding_map(&root, &mut Vec::new(), &mut encoding_map, &mut valid_tokens);
+        Self::build_encoding_map(&root, m, 0, 0, Vec::new(), &mut encoding_map, &mut valid_tokens);
 
         Ok(HuffmanGenerator {
             root: Some(root),
@@ -350,23 +535,34 @@ impl HuffmanGenerator {
         self.m
     }
 
-    /// Build the encoding map (token_id -> alphabet sequence) using explicit iteration
+    /// Build the encoding map (token_id -> Code) using explicit iteration
+    /// For binary: builds codes as u64 bit patterns (MSB-first)
+    /// For m-ary: builds codes as Vec<u8> symbol sequences
     fn build_encoding_map(
         node: &TrieNode,
-        _path: &mut Vec<u8>,
-        map: &mut Vec<Vec<u8>>,
+        m: u8,
+        current_bits: u64,
+        current_len: u8,
+        current_path: Vec<u8>,
+        map: &mut Vec<Code>,
         valid_tokens: &mut HashSet<u32>,
     ) {
         // Use explicit stack to avoid stack overflow with large trees
-        let mut stack: Vec<(&TrieNode, Vec<u8>)> = Vec::new();
-        stack.push((node, Vec::new()));
+        let mut stack: Vec<(&TrieNode, u64, u8, Vec<u8>)> = Vec::new();
+        stack.push((node, current_bits, current_len, current_path));
 
-        while let Some((current_node, current_path)) = stack.pop() {
+        while let Some((current_node, bits, len, path)) = stack.pop() {
             if current_node.is_leaf() {
                 if let Some(token_id) = current_node.codeword {
                     // Skip dummy nodes (u32::MAX)
                     if token_id != u32::MAX {
-                        map[token_id as usize] = current_path;
+                        if m == 2 {
+                            // Binary: use bit-packed representation
+                            map[token_id as usize] = Code::new_binary(bits, len);
+                        } else {
+                            // M-ary: use symbol sequence
+                            map[token_id as usize] = Code::new_mary(path);
+                        }
                         valid_tokens.insert(token_id);
                     }
                 }
@@ -374,9 +570,18 @@ impl HuffmanGenerator {
                 // Push children onto stack in reverse order to maintain left-to-right traversal
                 for (symbol, child_opt) in current_node.children.iter().enumerate().rev() {
                     if let Some(child) = child_opt {
-                        let mut new_path = current_path.clone();
-                        new_path.push(symbol as u8);
-                        stack.push((child.as_ref(), new_path));
+                        if m == 2 {
+                            // Binary: append bit to the code
+                            let new_bits = (bits << 1) | (symbol as u64);
+                            let new_len = len + 1;
+                            debug_assert!(new_len <= 64, "Code length exceeded 64 bits!");
+                            stack.push((child.as_ref(), new_bits, new_len, Vec::new()));
+                        } else {
+                            // M-ary: append symbol to the path
+                            let mut new_path = path.clone();
+                            new_path.push(symbol as u8);
+                            stack.push((child.as_ref(), 0, 0, new_path));
+                        }
                     }
                 }
             }
@@ -384,8 +589,10 @@ impl HuffmanGenerator {
     }
 
     /// Get the encoding map (for debugging/inspection)
-    pub fn get_encoding_map(&self) -> &[Vec<u8>] {
-        &self.encoding_map
+    /// Returns a vector of (Vec<u8> symbols) for backward compatibility with tests
+    #[cfg(test)]
+    pub fn get_encoding_map(&self) -> Vec<Vec<u8>> {
+        self.encoding_map.iter().map(|code| code.to_vec()).collect()
     }
 
     /// Calculate the weighted average code length using a probability distribution
@@ -466,10 +673,14 @@ impl HuffmanGenerator {
             .map_err(|e| format!("Failed to deserialize from JSON: {}", e))?;
 
         // Rebuild the encoding map from the tree
-        let mut encoding_map = vec![Vec::new(); deserialized.size];
+        let mut encoding_map = if deserialized.m == 2 {
+            vec![Code::empty_binary(); deserialized.size]
+        } else {
+            vec![Code::empty_mary(); deserialized.size]
+        };
         let mut valid_tokens = HashSet::new();
         if let Some(ref root) = deserialized.root {
-            Self::build_encoding_map(root, &mut Vec::new(), &mut encoding_map, &mut valid_tokens);
+            Self::build_encoding_map(root, deserialized.m, 0, 0, Vec::new(), &mut encoding_map, &mut valid_tokens);
         }
 
         Ok(HuffmanGenerator {
@@ -482,7 +693,7 @@ impl HuffmanGenerator {
 
     /// Encode a token to packed bytes (only for m=2, binary alphabet)
     ///
-    /// This packs bits into bytes for efficient transmission.
+    /// This packs bits into bytes for efficient transmission using BitWriter (zero allocation).
     /// Format: [1 byte: valid bits in last byte (0-8, where 0 means empty)] [packed bits]
     ///
     /// # Arguments
@@ -498,41 +709,43 @@ impl HuffmanGenerator {
             ));
         }
 
-        // Get the bit sequence
-        let bits = self.encode_raw(token_id)?;
+        if !self.valid_tokens.contains(&token_id) {
+            return Err(format!("Token ID {} not found in encoding map", token_id));
+        }
+
+        let code = &self.encoding_map[token_id as usize];
 
         // Handle empty encoding (0 bits)
-        if bits.is_empty() {
+        if code.len() == 0 {
             return Ok(vec![0]); // Header with 0 = no data bytes
         }
 
-        // Calculate how many valid bits are in the last byte (1-8)
-        let last_byte_bits = if bits.len() % 8 == 0 {
-            8
-        } else {
-            bits.len() % 8
-        };
+        // Use BitWriter for zero-allocation encoding
+        match code {
+            Code::Binary { bits, len } => {
+                let capacity = (*len as usize + 7) / 8 + 1; // +1 for header
+                let mut writer = BitWriter::new(capacity);
+                
+                writer.write_bits(*bits, *len);
+                let mut packed = writer.finish();
 
-        // Pack: [1 byte: last_byte_bits] [packed bytes]
-        let mut packed = vec![last_byte_bits as u8];
+                // Calculate how many valid bits are in the last byte (1-8)
+                let last_byte_bits = if len % 8 == 0 { 8 } else { len % 8 };
 
-        // Pack 8 bits into each byte (MSB first)
-        for chunk in bits.chunks(8) {
-            let mut byte = 0u8;
-            for (i, &bit) in chunk.iter().enumerate() {
-                if bit != 0 {
-                    byte |= 1 << (7 - i);
-                }
+                // Prepend header: [last_byte_bits] [data bytes]
+                packed.insert(0, last_byte_bits);
+
+                Ok(packed)
             }
-            packed.push(byte);
+            Code::Mary(_) => {
+                Err("encode_packed called with non-binary code".to_string())
+            }
         }
-
-        Ok(packed)
     }
 
     /// Decode packed bytes to a token ID (only for m=2, binary alphabet)
     ///
-    /// This unpacks bits from bytes and then decodes them.
+    /// This unpacks bits from bytes using BitReader (zero allocation) and decodes them.
     /// Expected format: [1 byte: valid bits in last byte (0-8, where 0 means empty)] [packed bits]
     ///
     /// # Arguments
@@ -562,7 +775,13 @@ impl HuffmanGenerator {
                     "Invalid packed data: header indicates 0 bits but has data bytes".to_string(),
                 );
             }
-            return self.decode_raw(&[]);
+            // Empty code - find token with empty encoding
+            for (token_id, code) in self.encoding_map.iter().enumerate() {
+                if code.len() == 0 && self.valid_tokens.contains(&(token_id as u32)) {
+                    return Ok(token_id as u32);
+                }
+            }
+            return Err("No token found with empty encoding".to_string());
         }
 
         if last_byte_bits > 8 {
@@ -584,31 +803,50 @@ impl HuffmanGenerator {
             (data_bytes - 1) * 8 + last_byte_bits
         };
 
-        // Unpack bits from data bytes
-        let mut bits = Vec::with_capacity(bit_count);
-        for (idx, &byte) in packed[1..].iter().enumerate() {
-            let is_last_byte = idx == data_bytes - 1;
-            let bits_in_this_byte = if is_last_byte { last_byte_bits } else { 8 };
+        // Use BitReader to decode directly from packed bytes
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| "Huffman tree not initialized".to_string())?;
 
-            for i in (8 - bits_in_this_byte..8).rev() {
-                bits.push((byte >> i) & 1);
+        let mut reader = BitReader::new(&packed[1..]);
+        let mut current = root.as_ref();
+        let mut bits_read = 0;
+
+        while bits_read < bit_count {
+            let bit = reader
+                .read_bit()
+                .ok_or_else(|| "Unexpected end of bit stream".to_string())?;
+            bits_read += 1;
+
+            current = current.children[bit as usize]
+                .as_ref()
+                .ok_or_else(|| format!("Invalid encoding: no child for bit {}", bit))?
+                .as_ref();
+
+            if current.is_leaf() {
+                let token_id = current
+                    .codeword
+                    .ok_or_else(|| "Reached leaf with no token ID".to_string())?;
+                
+                // We should have consumed exactly bit_count bits
+                if bits_read == bit_count {
+                    return Ok(token_id);
+                } else {
+                    return Err(format!(
+                        "Token decoded but {} bits remaining",
+                        bit_count - bits_read
+                    ));
+                }
             }
         }
 
-        if bits.len() != bit_count {
-            return Err(format!(
-                "Could not unpack {} bits from {} bytes",
-                bit_count, data_bytes
-            ));
-        }
-
-        // Decode the unpacked bits
-        self.decode_raw(&bits)
+        Err("Incomplete token at end of bit stream".to_string())
     }
 
     /// Encode multiple tokens to packed bytes (only for m=2, binary alphabet)
     ///
-    /// This encodes all tokens and packs their bits into bytes for efficient transmission.
+    /// This encodes all tokens using BitWriter for zero-allocation, single-pass encoding.
     /// Format: [1 byte: valid bits in last byte (0-8, where 0 means empty)] [packed bits for all tokens]
     ///
     /// # Arguments
@@ -624,45 +862,54 @@ impl HuffmanGenerator {
             ));
         }
 
-        // Collect all bits from all tokens
-        let mut all_bits = Vec::new();
+        // Estimate capacity: average 16 bits per token (reasonable for LLM vocabs)
+        let estimated_bits = token_ids.len() * 16;
+        let capacity = (estimated_bits + 7) / 8 + 1; // +1 for header
+        let mut writer = BitWriter::new(capacity);
+
+        // Single pass: encode each token directly to bitstream
         for &token_id in token_ids {
-            let bits = self.encode_raw(token_id)?;
-            all_bits.extend(bits);
+            if !self.valid_tokens.contains(&token_id) {
+                return Err(format!("Token ID {} not found in encoding map", token_id));
+            }
+            
+            let code = &self.encoding_map[token_id as usize];
+            match code {
+                Code::Binary { bits, len } => {
+                    writer.write_bits(*bits, *len);
+                }
+                Code::Mary(_) => {
+                    return Err("encode_bulk_packed called with non-binary code".to_string());
+                }
+            }
         }
 
+        let total_bits = writer.len_bits();
+
+        // Finish and get packed bytes
+        let mut packed = writer.finish();
+
         // Handle empty encoding (0 bits)
-        if all_bits.is_empty() {
+        if total_bits == 0 {
             return Ok(vec![0]); // Header with 0 = no data bytes
         }
 
         // Calculate how many valid bits are in the last byte (1-8)
-        let last_byte_bits = if all_bits.len() % 8 == 0 {
+        let last_byte_bits = if total_bits % 8 == 0 {
             8
         } else {
-            all_bits.len() % 8
+            total_bits % 8
         };
 
-        // Pack: [1 byte: last_byte_bits] [packed bytes]
-        let mut packed = vec![last_byte_bits as u8];
-
-        // Pack 8 bits into each byte (MSB first)
-        for chunk in all_bits.chunks(8) {
-            let mut byte = 0u8;
-            for (i, &bit) in chunk.iter().enumerate() {
-                if bit != 0 {
-                    byte |= 1 << (7 - i);
-                }
-            }
-            packed.push(byte);
-        }
+        // Prepend header: [last_byte_bits] [data bytes]
+        packed.insert(0, last_byte_bits as u8);
 
         Ok(packed)
     }
 
     /// Decode packed bytes to multiple token IDs (only for m=2, binary alphabet)
     ///
-    /// This unpacks bits from bytes and decodes all tokens sequentially.
+    /// This uses BitReader to decode directly from packed bytes with zero intermediate allocation.
     /// Expected format: [1 byte: valid bits in last byte (0-8, where 0 means empty)] [packed bits]
     ///
     /// # Arguments
@@ -692,7 +939,7 @@ impl HuffmanGenerator {
                     "Invalid packed data: header indicates 0 bits but has data bytes".to_string(),
                 );
             }
-            return self.decode_bulk_raw(&[]);
+            return Ok(Vec::new());
         }
 
         if last_byte_bits > 8 {
@@ -714,25 +961,45 @@ impl HuffmanGenerator {
             (data_bytes - 1) * 8 + last_byte_bits
         };
 
-        // Unpack bits from data bytes
-        let mut bits = Vec::with_capacity(bit_count);
-        for (idx, &byte) in packed[1..].iter().enumerate() {
-            let is_last_byte = idx == data_bytes - 1;
-            let bits_in_this_byte = if is_last_byte { last_byte_bits } else { 8 };
+        // Use BitReader to decode directly from packed bytes (zero allocation)
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| "Huffman tree not initialized".to_string())?;
 
-            for i in (8 - bits_in_this_byte..8).rev() {
-                bits.push((byte >> i) & 1);
+        let mut reader = BitReader::new(&packed[1..]);
+        let mut result = Vec::new();
+        let mut current = root.as_ref();
+        let mut bits_read = 0;
+
+        // Decode tokens sequentially by walking the trie
+        while bits_read < bit_count {
+            let bit = reader
+                .read_bit()
+                .ok_or_else(|| "Unexpected end of bit stream".to_string())?;
+            bits_read += 1;
+
+            current = current.children[bit as usize]
+                .as_ref()
+                .ok_or_else(|| format!("Invalid encoding: no child for bit {}", bit))?
+                .as_ref();
+
+            // Check if we've reached a leaf (completed a token)
+            if current.is_leaf() {
+                let token_id = current
+                    .codeword
+                    .ok_or_else(|| "Reached leaf with no token ID".to_string())?;
+                result.push(token_id);
+                // Reset to root for next token
+                current = root.as_ref();
             }
         }
 
-        if bits.len() != bit_count {
-            return Err(format!(
-                "Could not unpack {} bits from {} bytes",
-                bit_count, data_bytes
-            ));
+        // Ensure we ended at the root (all tokens were complete)
+        if !current.is_leaf() && current as *const _ != root.as_ref() as *const _ {
+            return Err("Incomplete token at end of bit stream".to_string());
         }
 
-        // Decode all tokens from the bit stream
-        self.decode_bulk_raw(&bits)
+        Ok(result)
     }
 }
