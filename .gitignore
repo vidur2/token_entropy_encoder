@@ -5,3 +5,5 @@
 .DS_Store
 node_modules
 scripts/packs
+*.log
+benchmark-results/
