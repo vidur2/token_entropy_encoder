@@ -14,8 +14,8 @@ static HUFFMAN: Lazy<HuffmanGenerator> = Lazy::new(|| {
 
 // Static Decoder loaded once from the embedded decodepack.bin
 static DECODER: Lazy<Option<Decoder>> = Lazy::new(|| {
-    // The decodepack.bin is embedded at compile time
-    let pack_data: &[u8] = include_bytes!("../scripts/packs/tinyllama/decodepack.bin");
+    // The decodepack.bin is embedded at compile time from the path in DECODEPACK_PATH env var
+    let pack_data: &[u8] = include_bytes!(env!("DECODEPACK_PATH"));
     let mut decoder = Decoder::new();
     match decoder.init_decodepack(pack_data) {
         Ok(_) => Some(decoder),

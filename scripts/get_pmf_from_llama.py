@@ -35,6 +35,9 @@ pmf_list = pmf_tensor.tolist()
 
 data = {'pmf': pmf_list}
 
+with open("llama_pmf.json", "w", encoding="utf-8") as f:
+    dump(data, f, ensure_ascii=False)
+
 vocab = tokenizer.get_vocab()
 
 id_to_token = [None] * len(vocab)

@@ -34,6 +34,7 @@ import os
 from dataclasses import asdict, dataclass
 from typing import List, Optional, Tuple
 
+from dotenv import set_key
 from transformers import AutoTokenizer
 
 
@@ -211,6 +212,12 @@ def main():
     print(f"Wrote: {meta_path}")
     print(f"blob bytes: {len(blob):,}")
     print(f"non-atomic tokens: {len(non_atomic)} (usually mostly specials/added tokens)")
+
+    # Update .env file with the absolute path to the decode pack
+    env_file_path = '.env'
+    abs_bin_path = os.path.abspath(bin_path)
+    set_key(env_file_path, 'DECODEPACK_PATH', abs_bin_path)
+    print(f"Updated .env with DECODEPACK_PATH={abs_bin_path}")
 
 
 if __name__ == "__main__":
