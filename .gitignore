@@ -1,6 +1,8 @@
 /target
 .venv
 *.json
+!package.json
+!package-lock.json
 .env
 .DS_Store
 node_modules

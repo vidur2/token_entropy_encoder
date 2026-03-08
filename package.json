@@ -1,0 +1,22 @@
+{
+  "name": "token-entropy-encoder",
+  "version": "0.1.0",
+  "description": "Huffman encoding/decoding for tokens compiled to WebAssembly",
+  "main": "pkg/token_entropy_encoder.js",
+  "types": "pkg/token_entropy_encoder.d.ts",
+  "files": [
+    "pkg"
+  ],
+  "keywords": [
+    "wasm",
+    "huffman",
+    "encoding",
+    "tokens",
+    "compression"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}

@@ -28,9 +28,9 @@ Comparing **WebSocket+Huffman (this project)** vs **SSE+JSON (current standard)*
 - ✅ Comprehensive benchmarks with mock server
 - ✅ Protocol overhead comparison validated
 - ✅ Node.js examples and test suite
+- ✅ Performance benchmarks comparing WebSocket+Huffman vs SSE+JSON
 
 **What Doesn't Work:**
-- ❌ **VS Code Extension** - Command registration issues prevent activation (see `vscode-extension/` directory for non-functional code)
 - ❌ **Modified LLM server** - Standard APIs (OpenAI, Ollama) return text, not token IDs
 - ❌ **Custom inference backend** - Need llama.cpp modification or custom server
 - ❌ **Multi-model support** - Tokenizer baked at build time via `./build.sh <tokenizer_name>`
@@ -61,33 +61,28 @@ The decoder runs in the browser via **Rust → WebAssembly (WASM)** to ensure pe
    - ~160KB WASM module with baked-in tokenizer
    - Runs in browser/Node.js via WebAssembly
 
-2. **Benchmark Suite** (`vscode-extension/out/test/`)
-   - Mock servers simulating WebSocket+Huffman and SSE+JSON
-   - Comprehensive performance comparison across 5 scenarios
-   - Proves protocol overhead reduction
-   - Commands: `npm run test:unit`, `npm run benchmark:compare`
-
-3. **Node.js Examples** (`node-examples/`)
+2. **Node.js Examples** (`node-examples/`)
    - Working encode/decode examples
    - Format comparison tools
    - Streaming demonstrations
    - Practical usage patterns
 
-4. **VS Code Extension** (`vscode-extension/`) - ⚠️ NON-FUNCTIONAL
-   - Code exists but command registration fails
-   - Intended to demonstrate WebSocket client + WASM decoder
-   - Benchmarks work, extension itself doesn't
+3. **Benchmark Suite** (`node-examples/`)
+   - Mock servers simulating WebSocket+Huffman and SSE+JSON
+   - Comprehensive performance comparison across 5 scenarios
+   - Proves protocol overhead reduction
+   - Commands: `node huffman_benchmark.js`, `node huffman_comparison.js`
 
 ---
 
 ## Architecture
 
-**Conceptual Flow** (VS Code extension is non-functional, but this shows the intended design):
+**Benchmark Flow**:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │                   Benchmark/Test Environment                   │
-│                   (vscode-extension/out/test/)                 │
+│                      (node-examples/)                          │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐  │
 │  │  Mock Proxy Servers                                      │  │
@@ -97,19 +92,18 @@ The decoder runs in the browser via **Rust → WebAssembly (WASM)** to ensure pe
 │  └──────────────────────┬──────────────────────────────────┘  │
 │                          │                                      │
 │  ┌──────────────────────▼──────────────────────────────────┐  │
-│  │  huffmanClient.ts (test harness)                         │  │
+│  │  HuffmanClient & SSEClient                               │  │
 │  │  - WASM decoder (decode_bulk)                            │  │
 │  │  - WebSocket client                                      │  │
 │  │  - Benchmark measurements                                │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────┘
 
-Intended Production Flow (not implemented):
+Intended Production Flow (not yet implemented):
 ┌────────────────────────────────────────────────────────────────┐
-│                       VS Code Extension                        │
-│                      (NON-FUNCTIONAL)                          │
+│                       Client Application                       │
 │                                                                 │
-│  WebSocket Client → WASM Decoder → Text Insertion              │
+│  WebSocket Client → WASM Decoder → Text Processing             │
 │  - text-generation-webui                                        │
 │  - Any OpenAI-compatible server                                 │
 │                                                                 │
@@ -149,14 +143,10 @@ npm install
 node full_pipeline.js       # See basic encode/decode flow
 node huffman_vs_json.js     # Compare formats
 
-# 3. Run benchmarks (VS Code extension tests)
-cd vscode-extension
-npm install
-npm run compile
-npm run test:unit           # Run unit tests (8/8 passing)
-npm run benchmark:compare   # Run comparison benchmarks
-
-# Note: VS Code extension itself is non-functional due to command registration issues
+# 3. Run benchmarks
+cd node-examples
+node huffman_benchmark.js       # Run performance benchmarks
+node huffman_comparison.js      # Run WebSocket+Huffman vs SSE+JSON comparison
 ```
 
 ---
@@ -168,7 +158,6 @@ npm run benchmark:compare   # Run comparison benchmarks
 - Node.js 18+ and npm
 - Rust toolchain (for building WASM module)
 - Python 3.8+ with venv (for tokenizer extraction)
-- VS Code 1.80+
 
 ### Step 1: Clone and Setup
 
@@ -203,27 +192,7 @@ This creates the `pkg/` directory with:
 - `token_entropy_encoder_bg.wasm` - Compiled WASM module (~160KB)
 - Type definitions
 
-### Step 3: Run Benchmarks
-
-⚠️ **Note:** The VS Code extension has command registration issues and is non-functional. However, the benchmark suite works and demonstrates the protocol performance.
-
-```bash
-cd vscode-extension
-
-# Install dependencies
-npm install
-
-# Compile TypeScript
-npm run compile
-
-# Run unit tests
-npm run test:unit
-
-# Run comparison benchmarks (WS+Huffman vs SSE+JSON)
-npm run benchmark:compare
-```
-
-### Step 4: Try Node.js Examples
+### Step 3: Try Node.js Examples
 
 For working examples of the encoding/decoding system:
 
@@ -241,19 +210,21 @@ node huffman_vs_json.js
 node streaming_example.js
 ```
 
-### Note on VS Code Extension
+### Step 4: Run Benchmarks
 
-⚠️ The VS Code extension in `vscode-extension/` is **non-functional** due to command registration issues. However, the benchmarks work:
+Run the comprehensive benchmark suite comparing WebSocket+Huffman vs SSE+JSON:
 
 ```bash
-cd vscode-extension
-npm install
-npm run compile
-npm run test:unit           # Unit tests
-npm run benchmark:compare   # Performance benchmarks
+cd node-examples
+
+# Run Huffman client performance benchmarks
+node huffman_benchmark.js
+
+# Run head-to-head comparison benchmarks
+node huffman_comparison.js
 ```
 
-The extension was intended to demonstrate the WebSocket+WASM client but does not activate properly in VS Code.
+These benchmarks measure connection latency, decoding throughput, end-to-end latency, and compare the two approaches across various completion sizes.
 
 ---
 
@@ -433,26 +404,13 @@ cargo test
 
 ## Configuration
 
-### VS Code Extension Settings
-
-```json
-{
-  "huffman-llm.mode": "ws-huffman",  // or "sse-json" for comparison
-  "huffman-llm.proxyUrl": "ws://localhost:3003",
-  "huffman-llm.temperature": 0.7,
-  "huffman-llm.maxTokens": 2048
-}
-```
-
----
-
 ## Benchmarking
 
 Run the full benchmark suite:
 
 ```bash
-cd vscode-extension
-npm run benchmark:compare
+cd node-examples
+node huffman_comparison.js
 ```
 
 Results:
@@ -480,7 +438,7 @@ ls -la pkg/
 ./build.sh TinyLlama/TinyLlama-1.1B-Chat-v1.0
 ```
 
-### Extension Not Compiling
+### Benchmarks Not Running
 
 **Check Node.js version:**
 ```bash
@@ -489,10 +447,9 @@ node --version  # Should be 18+
 
 **Reinstall dependencies:**
 ```bash
-cd vscode-extension
+cd node-examples
 rm -rf node_modules package-lock.json
 npm install
-npm run compile
 ```
 
 ### Tests Failing
@@ -502,14 +459,10 @@ npm run compile
 ls pkg/token_entropy_encoder_bg.wasm
 ```
 
-**Check extension compiled:**
+**Check node-examples dependencies:**
 ```bash
-ls vscode-extension/out/
-```
-
-**Run tests with verbose output:**
-```bash
-npm run test:unit
+cd node-examples
+npm install
 ```
 
 ---
@@ -545,14 +498,13 @@ npm run test:unit
 - [ ] Support multiple models dynamically (currently build-time only)
 - [ ] Multiple concurrent streams
 - [ ] Request cancellation
-- [ ] Bundle WASM with extension (no external dependency)
 - [ ] Performance telemetry
-- [ ] Streaming edits (not just insertions)
-- [ ] Marketplace-ready extension package
 - [ ] Reconnection logic
 - [ ] Replace Huffman with arithmetic/ANS coding
 - [ ] Use model logits instead of empirical frequencies
 - [ ] Context-adaptive per-message distributions
+- [ ] Real LLM server integration (not just mock server)
+- [ ] Browser-based client implementation
 
 ---
 
@@ -569,20 +521,12 @@ token_entropy_encoder/
 │   ├── proxy_server.js          # Huffman proxy server
 │   ├── benchmark_server.js      # Test server
 │   ├── benchmark_client.js      # Benchmark suite
+│   ├── huffmanClient.js         # WebSocket + WASM decoder
+│   ├── sseClient.js             # SSE + JSON client (comparison)
+│   ├── huffman_benchmark.js     # Performance benchmarks
+│   ├── huffman_comparison.js    # WS+Huffman vs SSE+JSON comparison
+│   ├── mockProxyServer.js       # Mock server for testing
 │   └── ...
-│
-├── vscode-extension/            # VS Code extension
-│   ├── package.json             # Extension manifest
-│   ├── tsconfig.json            # TypeScript config
-│   ├── README.md                # Extension docs
-│   ├── src/
-│   │   ├── extension.ts         # Main extension code
-│   │   ├── huffmanClient.ts     # WebSocket + WASM decoder
-│   │   └── sseClient.ts         # SSE + JSON client (comparison)
-│   └── test/
-│       ├── huffmanClient.test.ts    # Unit tests
-│       ├── comparison.benchmark.ts  # Benchmark suite
-│       └── mockProxyServer.ts       # Mock server
 │
 ├── src/                         # Rust source code
 │   ├── lib.rs
@@ -614,12 +558,12 @@ node proxy_server.js
 # Restart to see changes
 ```
 
-### Extension Development
+### Benchmark Development
 
 ```bash
-cd vscode-extension
-npm run watch  # Auto-compile on changes
-# Press F5 in VS Code to test
+cd node-examples
+# Edit benchmark files
+node huffman_benchmark.js  # Test changes
 ```
 
 ### WASM Module Development
@@ -658,5 +602,5 @@ MIT
 Built with:
 - Rust Huffman encoding implementation
 - WASM bindings for browser/Node.js
-- VS Code Extension API
 - WebSocket protocol
+- Node.js for benchmarking and examples
