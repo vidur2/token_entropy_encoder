@@ -1,4 +1,5 @@
 # Token-Aware LLM Streaming Compression
+test
 
 > **TL;DR**: Stream LLM token IDs over WebSocket+Huffman instead of text over SSE+JSON for **30% faster inline completions** and **60% bandwidth savings**. Proof-of-concept with mock benchmarks.
 
